@@ -1,4 +1,4 @@
-import { C as COLLECTIONS, R as ROLE, d as defaultMeta, c as defaultSettings, b as storage, n as newId, i as initStorage, e as currentDbName, f as storageErrors, a as addProfile, s as switchProfile, D as DB_NAME, U as UNITS, T as THEME_COLORS, F as FONT_STEPS, h as storageUsage } from "./schema-9eRjKrNp.js";
+import { C as COLLECTIONS, R as ROLE, d as defaultMeta, c as defaultSettings, b as storage, n as newId, i as initStorage, e as currentDbName, f as storageErrors, a as addProfile, s as switchProfile, D as DB_NAME, U as UNITS, T as THEME_COLORS, F as FONT_STEPS, h as storageUsage } from "./schema-Cpo7YWVO.js";
 /**
 * @vue/shared v3.5.44
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
@@ -13379,6 +13379,7 @@ const IMP_COLS = [
   "库存",
   "分类",
   "条形码",
+  "追溯码",
   "单位",
   "步长",
   "低库存阈值",
@@ -13395,6 +13396,8 @@ const FIELDS = [
   { k: "stock", label: "库存", alias: ["库存", "库存数量", "剩余", "数量"] },
   { k: "cat", label: "分类", alias: ["分类", "类目", "品类", "类别"] },
   { k: "barcode", label: "条形码", alias: ["条形码", "条码", "编码", "sku", "barcode"] },
+  /* 追溯码：摊主在自己这套里记一个批次/来源编号，导到别的平台也能对上货是从哪来的 */
+  { k: "traceCode", label: "追溯码", alias: ["追溯码", "溯源码", "追溯编号", "批次号", "批次", "tracecode", "trace"] },
   { k: "unit", label: "单位", alias: ["单位", "计量单位", "unit"] },
   { k: "step", label: "步长", alias: ["步长", "最小单位", "精度"] },
   { k: "splitFrom", label: "分装来源", alias: ["分装来源", "来源商品", "整卷商品", "母商品", "父商品"] },
@@ -13476,6 +13479,7 @@ function buildRows(raw, hIdx, map) {
       step: num(g("step")),
       cat: g("cat"),
       barcode: g("barcode"),
+      traceCode: g("traceCode"),
       splitFrom: g("splitFrom"),
       splitPer: Math.round(num(g("splitPer")) || 0),
       /* 阈值缺省 5：和商品编辑页默认一致；0 表示不提醒 */
@@ -13564,6 +13568,7 @@ function productsToCSV(products2, categories2, stocks, storeId) {
       qty ? qty.qty : 0,
       cat,
       p2.barcode || "",
+      p2.traceCode || "",
       p2.unit || "件",
       p2.step || 1,
       /* 顺序必须和 IMP_COLS 一模一样，否则导回去会串列 */
@@ -14324,6 +14329,7 @@ function saveProduct(payload, id) {
       step: 1,
       cat: "",
       barcode: "",
+      traceCode: "",
       motif: "tape",
       img: "",
       splitFrom: "",
@@ -14345,6 +14351,8 @@ function saveProduct(payload, id) {
     step: Number(payload.step) > 0 ? Number(payload.step) : 1,
     cat: payload.cat || "",
     barcode: payload.barcode || "",
+    /* 追溯码：批次/来源编号，摊主自己看得懂就行，别处平台也能对上这款货的来历 */
+    traceCode: payload.traceCode || "",
     motif: payload.motif || "tape",
     img: payload.img || p2.img || "",
     splitFrom: payload.splitFrom || "",
@@ -15216,7 +15224,7 @@ async function previewTable(file) {
   return { kind, raw, headerIndex: head.idx, map: head.map, rows, fileName: file.name };
 }
 function applyTableImport(preview, mode = "merge", fields = null) {
-  const ALL_FIELDS = ["price", "cost", "other", "unit", "step", "cat", "barcode", "lowStock", "desc", "img", "stock"];
+  const ALL_FIELDS = ["price", "cost", "other", "unit", "step", "cat", "barcode", "traceCode", "lowStock", "desc", "img", "stock"];
   const picked = Array.isArray(fields) && fields.length ? fields : ALL_FIELDS;
   const take = (k) => picked.includes(k);
   if (!allow("import:write")) {
@@ -15266,6 +15274,7 @@ function applyTableImport(preview, mode = "merge", fields = null) {
         step: 1,
         cat: "",
         barcode: "",
+        traceCode: "",
         motif: "tape",
         img: "",
         splitFrom: "",
@@ -15288,6 +15297,7 @@ function applyTableImport(preview, mode = "merge", fields = null) {
     if (take("step")) patch.step = isFinite(r.step) && r.step > 0 ? r.step : 1;
     if (take("cat")) patch.cat = cat.id;
     if (take("barcode")) patch.barcode = r.barcode || p2.barcode || "";
+    if (take("traceCode")) patch.traceCode = r.traceCode || p2.traceCode || "";
     if (take("lowStock")) patch.lowStock = Number.isFinite(Number(r.lowStock)) ? Math.max(0, Number(r.lowStock)) : (_a = p2.lowStock) != null ? _a : 5;
     if (take("desc")) patch.desc = r.desc || p2.desc || "";
     if (take("img")) patch.img = r.img || p2.img || "";
@@ -15299,6 +15309,7 @@ function applyTableImport(preview, mode = "merge", fields = null) {
       patch.step = isFinite(r.step) && r.step > 0 ? r.step : 1;
       patch.cat = cat.id;
       patch.barcode = r.barcode || "";
+      patch.traceCode = r.traceCode || "";
       patch.lowStock = Number.isFinite(Number(r.lowStock)) ? Math.max(0, Number(r.lowStock)) : 5;
       patch.desc = r.desc || "";
       patch.img = r.img || "";
@@ -16590,7 +16601,10 @@ const _sfc_main$b = {
   }
 };
 const PickerField = /* @__PURE__ */ _export_sfc(_sfc_main$b, [["__scopeId", "data-v-39c60741"]]);
-const _hoisted_1$a = { class: "sheet" };
+const _hoisted_1$a = {
+  class: "sheet pe-sheet",
+  style: { "height": "95dvh", "max-height": "95dvh" }
+};
 const _hoisted_2$a = { class: "sheet-head" };
 const _hoisted_3$a = { class: "sheet-body" };
 const _hoisted_4$a = { class: "img-row" };
@@ -16643,6 +16657,7 @@ const _sfc_main$a = {
       step: 1,
       cat: "",
       barcode: "",
+      traceCode: "",
       splitFrom: "",
       splitPer: 2,
       img: "",
@@ -16668,12 +16683,13 @@ const _sfc_main$a = {
         step: p2.step || 1,
         cat: p2.cat || "",
         barcode: p2.barcode || "",
+        traceCode: p2.traceCode || "",
         splitFrom: p2.splitFrom || "",
         splitPer: p2.splitPer || 2,
         img: p2.img || "",
         desc: p2.desc || "",
         lowStock: (_a = p2.lowStock) != null ? _a : 5
-      } : { name: "", price: "", cost: "", other: "", unit: "件", step: 1, cat: (categories.value[0] || {}).id || "", barcode: "", splitFrom: "", splitPer: 2, img: "", lowStock: 5 };
+      } : { name: "", price: "", cost: "", other: "", unit: "件", step: 1, cat: (categories.value[0] || {}).id || "", barcode: "", traceCode: "", splitFrom: "", splitPer: 2, img: "", lowStock: 5 };
       stockLoc.value = "store";
       stockQty.value = "";
       stockWh.value = (warehouses.value[0] || {}).id || "";
@@ -16758,6 +16774,7 @@ const _sfc_main$a = {
         step: parseFloat(f.step) || 1,
         cat: f.cat,
         barcode: f.barcode,
+        traceCode: f.traceCode,
         splitFrom: f.splitFrom,
         splitPer: f.splitPer,
         img: f.img,
@@ -16783,7 +16800,7 @@ const _sfc_main$a = {
       return openBlock(), createBlock(_component_var_popup, {
         show: __props.show,
         position: "bottom",
-        "onUpdate:show": _cache[20] || (_cache[20] = (v) => emit2("update:show", v))
+        "onUpdate:show": _cache[21] || (_cache[21] = (v) => emit2("update:show", v))
       }, {
         default: withCtx(() => [
           createBaseVNode("div", _hoisted_1$a, [
@@ -16801,7 +16818,7 @@ const _sfc_main$a = {
               ])
             ]),
             createBaseVNode("div", _hoisted_3$a, [
-              _cache[32] || (_cache[32] = createBaseVNode("div", { class: "field-label" }, "商品图片（可选，会自动压缩）", -1)),
+              _cache[33] || (_cache[33] = createBaseVNode("div", { class: "field-label" }, "商品图片（可选，会自动压缩）", -1)),
               createBaseVNode("div", _hoisted_4$a, [
                 createBaseVNode("div", _hoisted_5$a, [
                   form.value.img ? (openBlock(), createElementBlock("img", {
@@ -16815,7 +16832,7 @@ const _sfc_main$a = {
                   }))
                 ]),
                 createBaseVNode("label", _hoisted_7$a, [
-                  _cache[21] || (_cache[21] = createTextVNode(" 选择图片 ", -1)),
+                  _cache[22] || (_cache[22] = createTextVNode(" 选择图片 ", -1)),
                   createBaseVNode("input", {
                     type: "file",
                     accept: "image/*",
@@ -16829,7 +16846,7 @@ const _sfc_main$a = {
                   onClick: _cache[1] || (_cache[1] = ($event) => form.value.img = "")
                 }, "移除")) : createCommentVNode("", true)
               ]),
-              _cache[33] || (_cache[33] = createBaseVNode("div", { class: "field-label" }, "图片链接（可选，贴 http(s) 地址就不占本机空间）", -1)),
+              _cache[34] || (_cache[34] = createBaseVNode("div", { class: "field-label" }, "图片链接（可选，贴 http(s) 地址就不占本机空间）", -1)),
               withDirectives(createBaseVNode("input", {
                 "onUpdate:modelValue": _cache[2] || (_cache[2] = ($event) => form.value.img = $event),
                 class: "inp",
@@ -16838,11 +16855,11 @@ const _sfc_main$a = {
               }, null, 544), [
                 [vModelText, form.value.img]
               ]),
-              _cache[34] || (_cache[34] = createBaseVNode("p", {
+              _cache[35] || (_cache[35] = createBaseVNode("p", {
                 class: "hint",
                 style: { "margin-top": "6px" }
               }, "上传和链接二选一，后填的会覆盖先填的。外链图挂了会自动换成色块占位。", -1)),
-              _cache[35] || (_cache[35] = createBaseVNode("div", { class: "field-label" }, "名称 *", -1)),
+              _cache[36] || (_cache[36] = createBaseVNode("div", { class: "field-label" }, "名称 *", -1)),
               withDirectives(createBaseVNode("input", {
                 "onUpdate:modelValue": _cache[3] || (_cache[3] = ($event) => form.value.name = $event),
                 class: "inp",
@@ -16850,7 +16867,7 @@ const _sfc_main$a = {
               }, null, 512), [
                 [vModelText, form.value.name]
               ]),
-              _cache[36] || (_cache[36] = createBaseVNode("div", { class: "field-label" }, "介绍（可选，一句话描述）", -1)),
+              _cache[37] || (_cache[37] = createBaseVNode("div", { class: "field-label" }, "介绍（可选，一句话描述）", -1)),
               withDirectives(createBaseVNode("input", {
                 "onUpdate:modelValue": _cache[4] || (_cache[4] = ($event) => form.value.desc = $event),
                 class: "inp",
@@ -16860,7 +16877,7 @@ const _sfc_main$a = {
               ]),
               createBaseVNode("div", _hoisted_8$a, [
                 createBaseVNode("div", null, [
-                  _cache[22] || (_cache[22] = createBaseVNode("div", { class: "field-label" }, "售价 *（每单位）", -1)),
+                  _cache[23] || (_cache[23] = createBaseVNode("div", { class: "field-label" }, "售价 *（每单位）", -1)),
                   withDirectives(createBaseVNode("input", {
                     "onUpdate:modelValue": _cache[5] || (_cache[5] = ($event) => form.value.price = $event),
                     class: "inp num-input",
@@ -16872,7 +16889,7 @@ const _sfc_main$a = {
                   ])
                 ]),
                 createBaseVNode("div", null, [
-                  _cache[23] || (_cache[23] = createBaseVNode("div", { class: "field-label" }, "商品成本 *", -1)),
+                  _cache[24] || (_cache[24] = createBaseVNode("div", { class: "field-label" }, "商品成本 *", -1)),
                   withDirectives(createBaseVNode("input", {
                     "onUpdate:modelValue": _cache[6] || (_cache[6] = ($event) => form.value.cost = $event),
                     class: "inp num-input",
@@ -16886,7 +16903,7 @@ const _sfc_main$a = {
               ]),
               createBaseVNode("div", _hoisted_9$a, [
                 createBaseVNode("div", null, [
-                  _cache[24] || (_cache[24] = createBaseVNode("div", { class: "field-label" }, "其他成本（包装/损耗）", -1)),
+                  _cache[25] || (_cache[25] = createBaseVNode("div", { class: "field-label" }, "其他成本（包装/损耗）", -1)),
                   withDirectives(createBaseVNode("input", {
                     "onUpdate:modelValue": _cache[7] || (_cache[7] = ($event) => form.value.other = $event),
                     class: "inp num-input",
@@ -16898,7 +16915,7 @@ const _sfc_main$a = {
                   ])
                 ]),
                 createBaseVNode("div", null, [
-                  _cache[25] || (_cache[25] = createBaseVNode("div", { class: "field-label" }, "单位", -1)),
+                  _cache[26] || (_cache[26] = createBaseVNode("div", { class: "field-label" }, "单位", -1)),
                   createVNode(PickerField, {
                     modelValue: form.value.unit,
                     "onUpdate:modelValue": _cache[8] || (_cache[8] = ($event) => form.value.unit = $event),
@@ -16910,7 +16927,7 @@ const _sfc_main$a = {
               ]),
               createBaseVNode("div", _hoisted_10$a, [
                 createBaseVNode("div", null, [
-                  _cache[26] || (_cache[26] = createBaseVNode("div", { class: "field-label" }, "最小步长（kg 用 0.01）", -1)),
+                  _cache[27] || (_cache[27] = createBaseVNode("div", { class: "field-label" }, "最小步长（kg 用 0.01）", -1)),
                   withDirectives(createBaseVNode("input", {
                     "onUpdate:modelValue": _cache[9] || (_cache[9] = ($event) => form.value.step = $event),
                     class: "inp num-input",
@@ -16921,7 +16938,7 @@ const _sfc_main$a = {
                   ])
                 ]),
                 createBaseVNode("div", null, [
-                  _cache[27] || (_cache[27] = createBaseVNode("div", { class: "field-label" }, "低库存阈值", -1)),
+                  _cache[28] || (_cache[28] = createBaseVNode("div", { class: "field-label" }, "低库存阈值", -1)),
                   withDirectives(createBaseVNode("input", {
                     "onUpdate:modelValue": _cache[10] || (_cache[10] = ($event) => form.value.lowStock = $event),
                     class: "inp num-input",
@@ -16934,11 +16951,11 @@ const _sfc_main$a = {
                   ])
                 ])
               ]),
-              _cache[37] || (_cache[37] = createBaseVNode("div", { class: "note" }, [
+              _cache[38] || (_cache[38] = createBaseVNode("div", { class: "note" }, [
                 createBaseVNode("b", null, "低库存怎么算："),
                 createTextVNode("店内库存 ≤ 这个数，商品行就会标红并出现「补货」角标；填 0 表示不提醒。每个商品各自设，不是全局的。 ")
               ], -1)),
-              _cache[38] || (_cache[38] = createBaseVNode("div", {
+              _cache[39] || (_cache[39] = createBaseVNode("div", {
                 class: "field-label",
                 style: { "margin-top": "12px" }
               }, "分类", -1)),
@@ -16950,7 +16967,7 @@ const _sfc_main$a = {
                 placeholder: "未分类"
               }, null, 8, ["modelValue", "options"]),
               !isEdit.value ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [
-                _cache[29] || (_cache[29] = createBaseVNode("div", { class: "field-label" }, "首笔库存（可不填，之后也能在仓库页入库）", -1)),
+                _cache[30] || (_cache[30] = createBaseVNode("div", { class: "field-label" }, "首笔库存（可不填，之后也能在仓库页入库）", -1)),
                 createBaseVNode("div", _hoisted_11$a, [
                   createBaseVNode("button", {
                     class: "chip",
@@ -16985,13 +17002,13 @@ const _sfc_main$a = {
                       [vModelText, stockQty.value]
                     ])
                   ]),
-                  _cache[28] || (_cache[28] = createBaseVNode("div", {
+                  _cache[29] || (_cache[29] = createBaseVNode("div", {
                     class: "hint",
                     style: { "padding-top": "22px" }
                   }, " 进仓库的货，到店铺还要「发放」一次才卖得出去 ", -1))
                 ])
               ], 64)) : createCommentVNode("", true),
-              _cache[39] || (_cache[39] = createBaseVNode("div", { class: "field-label" }, "条形码（可选）", -1)),
+              _cache[40] || (_cache[40] = createBaseVNode("div", { class: "field-label" }, "条形码（可选）", -1)),
               withDirectives(createBaseVNode("input", {
                 "onUpdate:modelValue": _cache[16] || (_cache[16] = ($event) => form.value.barcode = $event),
                 class: "inp",
@@ -16999,19 +17016,27 @@ const _sfc_main$a = {
               }, null, 512), [
                 [vModelText, form.value.barcode]
               ]),
-              _cache[40] || (_cache[40] = createBaseVNode("div", { class: "field-label" }, "分装关系（整卷 → 分装）", -1)),
+              _cache[41] || (_cache[41] = createBaseVNode("div", { class: "field-label" }, "追溯码（可选）", -1)),
+              withDirectives(createBaseVNode("input", {
+                "onUpdate:modelValue": _cache[17] || (_cache[17] = ($event) => form.value.traceCode = $event),
+                class: "inp",
+                placeholder: "例如 批次号 B2405 / 来源编号"
+              }, null, 512), [
+                [vModelText, form.value.traceCode]
+              ]),
+              _cache[42] || (_cache[42] = createBaseVNode("div", { class: "field-label" }, "分装关系（整卷 → 分装）", -1)),
               createVNode(PickerField, {
                 modelValue: form.value.splitFrom,
-                "onUpdate:modelValue": _cache[17] || (_cache[17] = ($event) => form.value.splitFrom = $event),
+                "onUpdate:modelValue": _cache[18] || (_cache[18] = ($event) => form.value.splitFrom = $event),
                 options: [{ value: "", label: "不是分装商品" }, ...parentOptions.value],
                 title: "选择整卷商品",
                 placeholder: "不是分装商品"
               }, null, 8, ["modelValue", "options"]),
               form.value.splitFrom ? (openBlock(), createElementBlock("div", _hoisted_18$9, [
                 createBaseVNode("div", null, [
-                  _cache[30] || (_cache[30] = createBaseVNode("div", { class: "field-label" }, "每卷能拆几份", -1)),
+                  _cache[31] || (_cache[31] = createBaseVNode("div", { class: "field-label" }, "每卷能拆几份", -1)),
                   withDirectives(createBaseVNode("input", {
-                    "onUpdate:modelValue": _cache[18] || (_cache[18] = ($event) => form.value.splitPer = $event),
+                    "onUpdate:modelValue": _cache[19] || (_cache[19] = ($event) => form.value.splitPer = $event),
                     class: "inp num-input",
                     type: "number",
                     min: "2",
@@ -17020,7 +17045,7 @@ const _sfc_main$a = {
                     [vModelText, form.value.splitPer]
                   ])
                 ]),
-                _cache[31] || (_cache[31] = createBaseVNode("div", {
+                _cache[32] || (_cache[32] = createBaseVNode("div", {
                   class: "hint",
                   style: { "padding-top": "22px" }
                 }, "拆卷时整卷 −1，分装 +N", -1))
@@ -17039,17 +17064,17 @@ const _sfc_main$a = {
                 size: "normal",
                 onClick: removeProduct
               }, {
-                default: withCtx(() => [..._cache[41] || (_cache[41] = [
+                default: withCtx(() => [..._cache[43] || (_cache[43] = [
                   createTextVNode("删除", -1)
                 ])]),
                 _: 1
               })) : createCommentVNode("", true),
-              _cache[43] || (_cache[43] = createBaseVNode("div", { style: { "flex": "1" } }, null, -1)),
+              _cache[45] || (_cache[45] = createBaseVNode("div", { style: { "flex": "1" } }, null, -1)),
               createVNode(_component_var_button, {
                 size: "normal",
-                onClick: _cache[19] || (_cache[19] = ($event) => emit2("update:show", false))
+                onClick: _cache[20] || (_cache[20] = ($event) => emit2("update:show", false))
               }, {
-                default: withCtx(() => [..._cache[42] || (_cache[42] = [
+                default: withCtx(() => [..._cache[44] || (_cache[44] = [
                   createTextVNode("取消", -1)
                 ])]),
                 _: 1
@@ -17072,7 +17097,7 @@ const _sfc_main$a = {
     };
   }
 };
-const ProductEditor = /* @__PURE__ */ _export_sfc(_sfc_main$a, [["__scopeId", "data-v-894e0025"]]);
+const ProductEditor = /* @__PURE__ */ _export_sfc(_sfc_main$a, [["__scopeId", "data-v-0f3473ac"]]);
 const _hoisted_1$9 = { class: "sheet" };
 const _hoisted_2$9 = { class: "sheet-head" };
 const _hoisted_3$9 = { class: "sheet-body" };
@@ -17147,6 +17172,7 @@ const _sfc_main$9 = {
       ["step", "步长"],
       ["cat", "分类"],
       ["barcode", "条形码"],
+      ["traceCode", "追溯码"],
       ["lowStock", "低库存阈值"],
       ["desc", "描述"],
       ["img", "图片"]
@@ -17401,7 +17427,7 @@ const _sfc_main$9 = {
     };
   }
 };
-const ImportSheet = /* @__PURE__ */ _export_sfc(_sfc_main$9, [["__scopeId", "data-v-1b5b36f9"]]);
+const ImportSheet = /* @__PURE__ */ _export_sfc(_sfc_main$9, [["__scopeId", "data-v-0f4b86e4"]]);
 const _hoisted_1$8 = { class: "cat-sheet" };
 const _hoisted_2$8 = { class: "cat-head" };
 const _hoisted_3$8 = { class: "hint" };
@@ -18017,7 +18043,7 @@ const _sfc_main$8 = {
     };
   }
 };
-const CategorySheet = /* @__PURE__ */ _export_sfc(_sfc_main$8, [["__scopeId", "data-v-e0a701c6"]]);
+const CategorySheet = /* @__PURE__ */ _export_sfc(_sfc_main$8, [["__scopeId", "data-v-a62bcce9"]]);
 const _hoisted_1$7 = { class: "split-sheet" };
 const _hoisted_2$7 = { class: "split-head" };
 const _hoisted_3$7 = { class: "loc-tabs" };
@@ -20052,10 +20078,18 @@ const _sfc_main$3 = {
     const maxBar = computed(() => Math.sqrt(Math.max(1, ...series.value.map((b) => b.value))));
     const top = computed(() => topProducts(scoped.value, 6));
     const agentRows = computed(() => {
+      const sid = store.value ? store.value.id : "";
+      const mineAgents = state.collections.agents.filter((a) => !sid || a.parentStoreId === sid);
       const map = /* @__PURE__ */ new Map();
       scoped.value.forEach((o) => {
         const key = o.agentId || "__self";
-        const cur = map.get(key) || { id: key, name: o.agentId ? (state.collections.agents.find((a) => a.id === o.agentId) || {}).name || "代理" : "店主自卖", count: 0, sales: 0 };
+        if (o.agentId && !mineAgents.some((a) => a.id === o.agentId)) return;
+        const cur = map.get(key) || {
+          id: key,
+          name: o.agentId ? (mineAgents.find((a) => a.id === o.agentId) || {}).name || "代理" : "店主自卖",
+          count: 0,
+          sales: 0
+        };
         cur.count++;
         cur.sales += orderStats(o, productById).received;
         map.set(key, cur);
@@ -20273,7 +20307,7 @@ const _sfc_main$3 = {
     };
   }
 };
-const StatsView = /* @__PURE__ */ _export_sfc(_sfc_main$3, [["__scopeId", "data-v-9a731e42"]]);
+const StatsView = /* @__PURE__ */ _export_sfc(_sfc_main$3, [["__scopeId", "data-v-0832534a"]]);
 function getDefaultExportFromCjs(x) {
   return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, "default") ? x["default"] : x;
 }
@@ -20760,10 +20794,13 @@ const _sfc_main$2 = {
   setup(__props, { emit: __emit }) {
     const emit2 = __emit;
     const form = /* @__PURE__ */ ref({ name: "", ownerName: "" });
-    const list = computed(() => agents.value.map((a) => ({
-      a,
-      storeName: (state.collections.stores.find((s) => s.id === a.parentStoreId) || {}).name || ""
-    })));
+    const list = computed(() => {
+      const sid = activeStore.value ? activeStore.value.id : "";
+      return agents.value.filter((a) => !sid || a.parentStoreId === sid).map((a) => ({
+        a,
+        storeName: (state.collections.stores.find((s) => s.id === a.parentStoreId) || {}).name || ""
+      }));
+    });
     function create() {
       if (!form.value.name.trim()) {
         tip("代理名称不能空");
@@ -20999,7 +21036,7 @@ const _sfc_main$2 = {
     };
   }
 };
-const AgentSheet = /* @__PURE__ */ _export_sfc(_sfc_main$2, [["__scopeId", "data-v-6657c32d"]]);
+const AgentSheet = /* @__PURE__ */ _export_sfc(_sfc_main$2, [["__scopeId", "data-v-c8e8c855"]]);
 const _hoisted_1$1 = { class: "page" };
 const _hoisted_2$1 = { class: "topbar" };
 const _hoisted_3$1 = { class: "sub" };

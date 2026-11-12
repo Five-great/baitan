@@ -352,10 +352,27 @@ const UNITS = [
   { v: "包", step: 1 },
   { v: "盒", step: 1 },
   { v: "套", step: 1 },
+  { v: "条", step: 1 },
+  { v: "张", step: 1 },
+  { v: "袋", step: 1 },
+  { v: "瓶", step: 1 },
+  { v: "罐", step: 1 },
+  { v: "支", step: 1 },
+  { v: "只", step: 1 },
+  { v: "双", step: 1 },
+  { v: "把", step: 1 },
+  { v: "串", step: 1 },
+  { v: "打", step: 1 },
+  { v: "箱", step: 1 },
+  { v: "组", step: 1 },
   { v: "kg", step: 0.01 },
   { v: "g", step: 1 },
+  { v: "斤", step: 0.01 },
+  { v: "两", step: 0.1 },
   { v: "米", step: 0.1 },
-  { v: "ml", step: 1 }
+  { v: "cm", step: 0.1 },
+  { v: "ml", step: 1 },
+  { v: "L", step: 0.01 }
 ];
 const THEME_COLORS = [
   { key: "jade", name: "青绿" },
