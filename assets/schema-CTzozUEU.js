@@ -36,6 +36,13 @@
   }
 })();
 const STORE = "docs";
+function tx(db, mode) {
+  try {
+    return db.transaction(STORE, mode, { durability: "relaxed" });
+  } catch (e) {
+    return db.transaction(STORE, mode);
+  }
+}
 function createIndexedDBAdapter(dbName = "stall3") {
   let dbp = null;
   function open() {
@@ -74,7 +81,7 @@ function createIndexedDBAdapter(dbName = "stall3") {
     async write(key, value) {
       const db = await open();
       return new Promise((resolve, reject) => {
-        const t = db.transaction(STORE, "readwrite");
+        const t = tx(db, "readwrite");
         t.objectStore(STORE).put(value, key);
         t.oncomplete = () => resolve(true);
         t.onerror = () => reject(t.error);
@@ -90,7 +97,7 @@ function createIndexedDBAdapter(dbName = "stall3") {
       if (!pairs || !pairs.length) return true;
       const db = await open();
       return new Promise((resolve, reject) => {
-        const t = db.transaction(STORE, "readwrite");
+        const t = tx(db, "readwrite");
         const st = t.objectStore(STORE);
         pairs.forEach(([key, value]) => st.put(value, key));
         t.oncomplete = () => resolve(true);
@@ -123,7 +130,7 @@ function createIndexedDBAdapter(dbName = "stall3") {
       if (!keys || !keys.length) return true;
       const db = await open();
       return new Promise((resolve, reject) => {
-        const t = db.transaction(STORE, "readwrite");
+        const t = tx(db, "readwrite");
         const st = t.objectStore(STORE);
         keys.forEach((k) => st.delete(k));
         t.oncomplete = () => resolve(true);
@@ -273,9 +280,32 @@ function addProfile(name) {
 function switchProfile(id) {
   saveCurrentProfileId(id);
 }
+const DB_OVERRIDE_KEY = "stall3:dbOverride";
+function readOverride() {
+  try {
+    return JSON.parse(window.localStorage.getItem(DB_OVERRIDE_KEY) || "{}");
+  } catch (e) {
+    return {};
+  }
+}
 function currentDbName() {
   const p = getOrCreateProfile();
-  return "stall3_" + p.id;
+  const base = "stall3_" + p.id;
+  const map = readOverride();
+  const alt = map[p.id];
+  return alt || base;
+}
+function setDbOverride(profileId, dbName) {
+  const map = readOverride();
+  if (dbName) map[profileId] = dbName;
+  else delete map[profileId];
+  try {
+    window.localStorage.setItem(DB_OVERRIDE_KEY, JSON.stringify(map));
+  } catch (e) {
+  }
+}
+function baseDbName(profileId) {
+  return "stall3_" + profileId;
 }
 function readDriverPref() {
   try {
@@ -599,8 +629,10 @@ export {
   getOrCreateProfile as g,
   dbBreakdown as h,
   initStorage as i,
-  dropOtherDbs as j,
-  storageUsage as k,
+  baseDbName as j,
+  setDbOverride as k,
+  dropOtherDbs as l,
+  storageUsage as m,
   newId as n,
   switchProfile as s
 };
