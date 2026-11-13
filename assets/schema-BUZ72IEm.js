@@ -309,6 +309,95 @@ async function storageUsage() {
     localKeys
   };
 }
+async function dbBreakdown(currentName) {
+  const out = { dbs: [], current: currentName || "", total: 0 };
+  let names = [];
+  try {
+    names = (await indexedDB.databases()).map((d) => d.name).filter((n) => n && /^stall3/.test(n));
+  } catch (e) {
+    names = currentName ? [currentName] : [];
+  }
+  for (const name of names) {
+    const keys = [];
+    let size = 0;
+    await new Promise((resolve) => {
+      let db = null;
+      try {
+        const req = indexedDB.open(name);
+        req.onsuccess = () => {
+          db = req.result;
+          try {
+            const store = db.transaction("docs", "readonly").objectStore("docs");
+            const g = store.getAllKeys();
+            g.onsuccess = () => {
+              const ks = g.result || [];
+              if (!ks.length) {
+                db.close();
+                resolve();
+                return;
+              }
+              let i = 0;
+              ks.forEach((k) => {
+                const v = store.get(k);
+                v.onsuccess = () => {
+                  const bytes = JSON.stringify(v.result == null ? null : v.result).length;
+                  size += bytes;
+                  keys.push([k, bytes]);
+                  if (++i === ks.length) {
+                    db.close();
+                    resolve();
+                  }
+                };
+                v.onerror = () => {
+                  if (++i === ks.length) {
+                    db.close();
+                    resolve();
+                  }
+                };
+              });
+            };
+            g.onerror = () => {
+              db.close();
+              resolve();
+            };
+          } catch (e) {
+            db.close();
+            resolve();
+          }
+        };
+        req.onerror = () => resolve();
+      } catch (e) {
+        resolve();
+      }
+    });
+    out.dbs.push({ name, size, keys: keys.sort((a, b) => b[1] - a[1]) });
+    out.total += size;
+  }
+  out.dbs.sort((a, b) => b.size - a.size);
+  return out;
+}
+async function dropOtherDbs(keepName) {
+  let names = [];
+  try {
+    names = (await indexedDB.databases()).map((d) => d.name).filter(Boolean);
+  } catch (e) {
+    return { dropped: 0 };
+  }
+  let dropped = 0;
+  for (const name of names) {
+    if (!/^stall3/.test(name) || name === keepName) continue;
+    await new Promise((resolve) => {
+      const req = indexedDB.deleteDatabase(name);
+      req.onsuccess = () => {
+        dropped++;
+        resolve();
+      };
+      req.onerror = () => resolve();
+      req.onblocked = () => resolve();
+    });
+  }
+  return { dropped };
+}
 const storage = {
   async read(key) {
     return current.read(key);
@@ -441,8 +530,10 @@ export {
   currentDbName as e,
   storageErrors as f,
   getOrCreateProfile as g,
-  storageUsage as h,
+  dbBreakdown as h,
   initStorage as i,
+  dropOtherDbs as j,
+  storageUsage as k,
   newId as n,
   switchProfile as s
 };
