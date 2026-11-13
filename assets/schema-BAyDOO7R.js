@@ -45,21 +45,54 @@ function tx(db, mode) {
 }
 function createIndexedDBAdapter(dbName = "stall3") {
   let dbp = null;
+  const OPEN_TIMEOUT = 9e3;
   function open() {
     if (dbp) return dbp;
     dbp = new Promise((resolve, reject) => {
       if (typeof indexedDB === "undefined") {
+        dbp = null;
         reject(new Error("indexeddb-unsupported"));
         return;
       }
-      const req = indexedDB.open(dbName, 1);
+      let settled = false;
+      const finish = (fn, arg) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (fn === reject) dbp = null;
+        fn(arg);
+      };
+      const timer = setTimeout(() => {
+        finish(reject, new Error("indexeddb-open-timeout（另一个标签页可能还占着这个库）"));
+      }, OPEN_TIMEOUT);
+      let req;
+      try {
+        req = indexedDB.open(dbName, 1);
+      } catch (e) {
+        finish(reject, e);
+        return;
+      }
       req.onupgradeneeded = () => {
         const db = req.result;
         if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
       };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error || new Error("indexeddb-open-failed"));
-      req.onblocked = () => reject(new Error("indexeddb-blocked"));
+      req.onsuccess = () => {
+        const db = req.result;
+        db.onversionchange = () => {
+          try {
+            db.close();
+          } catch (e) {
+          }
+          dbp = null;
+        };
+        db.onclose = () => {
+          dbp = null;
+        };
+        finish(resolve, db);
+      };
+      req.onerror = () => finish(reject, req.error || new Error("indexeddb-open-failed"));
+      req.onblocked = () => {
+      };
     });
     return dbp;
   }
@@ -123,6 +156,20 @@ function createIndexedDBAdapter(dbName = "stall3") {
             cur.continue();
           } else resolve(out);
         };
+        req.onerror = () => reject(req.error);
+      });
+    },
+    /**
+     * 【启动速度】-一次把某个前缀下的所有行值取回来
+     * 原来是一行一个事务、一次 await，8 万行就要 8 万次往返，
+     * 关掉标签再打开能卡 40 秒。getAll 一个事务内批量取，快一个数量级。
+     */
+    async readPrefix(prefix) {
+      const db = await open();
+      return new Promise((resolve, reject) => {
+        const t = db.transaction(STORE, "readonly");
+        const req = t.objectStore(STORE).getAll(IDBKeyRange.bound(prefix, prefix + "￿"));
+        req.onsuccess = () => resolve(req.result || []);
         req.onerror = () => reject(req.error);
       });
     },
@@ -490,6 +537,12 @@ const storage = {
     if (current && typeof current.writeMany === "function") return current.writeMany(pairs);
     for (const [key, value] of pairs) await current.write(key, value);
     return true;
+  },
+  /* 【启动速度】-一次取某个前缀下的所有行（IndexedDB 走 getAll，一个事务搞定）。
+     老适配器没实现就返回 null，上层退回 listKeys + 逐行 read */
+  async readPrefix(prefix) {
+    if (current && typeof current.readPrefix === "function") return current.readPrefix(prefix);
+    return null;
   },
   /* 按行存要用到的三个能力；适配器没实现就退化（上层自己判断） */
   async listKeys(prefix) {
