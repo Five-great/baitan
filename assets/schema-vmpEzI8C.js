@@ -81,6 +81,55 @@ function createIndexedDBAdapter(dbName = "stall3") {
         t.onabort = () => reject(t.error || new Error("tx-aborted"));
       });
     },
+    /**
+     * 【体积】-一次事务写完多个集合
+     * 每开一个事务，浏览器都要单独提交一次、留一条日志；收一单要写 orders/stocks/stockOps 三组，
+     * 单开就是三次提交。合并成一次事务后，同样的数据只留一份日志 —— 库文件涨得慢很多。
+     */
+    async writeMany(pairs) {
+      if (!pairs || !pairs.length) return true;
+      const db = await open();
+      return new Promise((resolve, reject) => {
+        const t = db.transaction(STORE, "readwrite");
+        const st = t.objectStore(STORE);
+        pairs.forEach(([key, value]) => st.put(value, key));
+        t.oncomplete = () => resolve(true);
+        t.onerror = () => reject(t.error);
+        t.onabort = () => reject(t.error || new Error("tx-aborted"));
+      });
+    },
+    /**
+     * 【体积】-按行存：给某个集合的所有行键（集合名: 前缀）
+     * 背景：整组写一个集合时，浏览器会把整个数组当成一个新版本追加，
+     *      加一单就要重写全部订单，文件涨得比数据快。改成一行一个键，只追加那一行。
+     */
+    async listKeys(prefix) {
+      const db = await open();
+      return new Promise((resolve, reject) => {
+        const out = [];
+        const t = db.transaction(STORE, "readonly");
+        const req = t.objectStore(STORE).openKeyCursor(IDBKeyRange.bound(prefix, prefix + "￿"));
+        req.onsuccess = () => {
+          const cur = req.result;
+          if (cur) {
+            out.push(cur.key);
+            cur.continue();
+          } else resolve(out);
+        };
+        req.onerror = () => reject(req.error);
+      });
+    },
+    async deleteMany(keys) {
+      if (!keys || !keys.length) return true;
+      const db = await open();
+      return new Promise((resolve, reject) => {
+        const t = db.transaction(STORE, "readwrite");
+        const st = t.objectStore(STORE);
+        keys.forEach((k) => st.delete(k));
+        t.oncomplete = () => resolve(true);
+        t.onerror = () => reject(t.error);
+      });
+    },
     async remove(key) {
       const db = await open();
       return new Promise((resolve, reject) => {
@@ -404,6 +453,24 @@ const storage = {
   },
   async write(key, value) {
     return current.write(key, value);
+  },
+  /* 多个 key 合并成一次事务写（IndexedDB 才有意义，其它适配器退化成循环） */
+  async writeMany(pairs) {
+    if (!pairs || !pairs.length) return true;
+    if (current && typeof current.writeMany === "function") return current.writeMany(pairs);
+    for (const [key, value] of pairs) await current.write(key, value);
+    return true;
+  },
+  /* 按行存要用到的三个能力；适配器没实现就退化（上层自己判断） */
+  async listKeys(prefix) {
+    if (current && typeof current.listKeys === "function") return current.listKeys(prefix);
+    return [];
+  },
+  async deleteMany(keys) {
+    if (!keys || !keys.length) return true;
+    if (current && typeof current.deleteMany === "function") return current.deleteMany(keys);
+    for (const k of keys) await current.remove(k);
+    return true;
   },
   async remove(key) {
     return current.remove(key);
