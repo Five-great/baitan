@@ -1,4 +1,4 @@
-import { a as addProfile, s as switchProfile, g as getOrCreateProfile, i as initStorage, C as COLLECTIONS, b as storage } from "./schema-BUZ72IEm.js";
+import { a as addProfile, s as switchProfile, g as getOrCreateProfile, i as initStorage, C as COLLECTIONS, b as storage } from "./schema-CiGV6Pkh.js";
 function fromBase64(b64) {
   const bin = atob(String(b64 || ""));
   const bytes = new Uint8Array(bin.length);

@@ -313,7 +313,7 @@ async function dbBreakdown(currentName) {
   const out = { dbs: [], current: currentName || "", total: 0 };
   let names = [];
   try {
-    names = (await indexedDB.databases()).map((d) => d.name).filter((n) => n && /^stall3/.test(n));
+    names = (await indexedDB.databases()).map((d) => d.name).filter(Boolean);
   } catch (e) {
     names = currentName ? [currentName] : [];
   }
