@@ -13296,9 +13296,9 @@ function setQty(stocks, productId, locType, locId, qty) {
     row = { id, productId, locType, locId, qty: 0, updatedAt: 0 };
     stocks.push(row);
   }
-  row.qty = r2(qty);
-  row.updatedAt = Date.now();
-  return row;
+  const next = { ...row, qty: r2(qty), updatedAt: Date.now() };
+  stocks[stocks.indexOf(row)] = next;
+  return next;
 }
 function addQty(stocks, productId, locType, locId, delta) {
   const cur = qtyAt(stocks, productId, locType, locId);
@@ -14248,6 +14248,11 @@ let writeCount = 0;
 const ROW_COLLECTIONS = ["products", "orders", "stockOps", "logs", "stocks"];
 const rowKeyOf = (name2, id) => name2 + ":" + id;
 const rowIndex = { products: /* @__PURE__ */ new Map(), orders: /* @__PURE__ */ new Map(), stockOps: /* @__PURE__ */ new Map(), logs: /* @__PURE__ */ new Map(), stocks: /* @__PURE__ */ new Map() };
+const lastRefs = { products: /* @__PURE__ */ new Map(), orders: /* @__PURE__ */ new Map(), stockOps: /* @__PURE__ */ new Map(), logs: /* @__PURE__ */ new Map(), stocks: /* @__PURE__ */ new Map() };
+let forceRows = /* @__PURE__ */ new WeakSet();
+function markRow(name2, row) {
+  if (row && typeof row === "object") forceRows.add(row);
+}
 function rowIdentity(name2, row) {
   if (!row || typeof row !== "object") return "";
   if (name2 === "stocks") {
@@ -14285,6 +14290,7 @@ async function loadRowCollection(name2) {
   });
   const merged = Array.from(map.values());
   rowIndex[name2] = new Map(merged.map((r) => [keyOf(r), JSON.stringify(r)]));
+  lastRefs[name2] = new Map(merged.map((r) => [keyOf(r), r]));
   if (legacy.length) {
     try {
       const pairs = merged.map((r) => [rowKeyOf(name2, keyOf(r)), r]);
@@ -14296,6 +14302,7 @@ async function loadRowCollection(name2) {
   }
   return merged;
 }
+let flushSeq = 0;
 async function persistCollections(pairs) {
   const rowPairs = [];
   const rowDeletes = [];
@@ -14306,19 +14313,32 @@ async function persistCollections(pairs) {
       continue;
     }
     const idx = rowIndex[name2] || /* @__PURE__ */ new Map();
+    const prev = lastRefs[name2] || /* @__PURE__ */ new Map();
+    const nextRefs = /* @__PURE__ */ new Map();
     const nextIdx = /* @__PURE__ */ new Map();
+    const full = flushSeq++ % 20 === 0;
     for (const row of value) {
       const key = rowIdentity(name2, row);
       if (!key) continue;
+      const cached = idx.get(key);
+      if (!full && cached !== void 0 && prev.get(key) === row && !forceRows.has(row)) {
+        nextIdx.set(key, cached);
+        nextRefs.set(key, row);
+        continue;
+      }
       const json = JSON.stringify(row);
       nextIdx.set(key, json);
-      if (idx.get(key) !== json) rowPairs.push([rowKeyOf(name2, key), row]);
+      nextRefs.set(key, row);
+      if (cached !== json) rowPairs.push([rowKeyOf(name2, key), row]);
     }
+    lastRefs[name2] = nextRefs;
     for (const id of idx.keys()) {
       if (!nextIdx.has(id)) rowDeletes.push(rowKeyOf(name2, id));
     }
     rowIndex[name2] = nextIdx;
   }
+  flushSeq++;
+  forceRows = /* @__PURE__ */ new WeakSet();
   if (rowPairs.length) await storage.writeMany(rowPairs);
   if (rowDeletes.length) await storage.deleteMany(rowDeletes);
   if (wholePairs.length) await storage.writeMany(wholePairs);
@@ -14566,6 +14586,7 @@ function backfillOrderCosts() {
       if (l.cost !== void 0 && l.other !== void 0) return;
       const p2 = state.collections.products.find((x) => x.id === l.productId);
       if (!p2) return;
+      markRow("orders", o);
       if (l.cost === void 0) l.cost = p2.cost || 0;
       if (l.other === void 0) l.other = p2.other || 0;
       changed++;
@@ -14824,6 +14845,7 @@ function saveProduct(payload, id) {
     lowStock: Number.isFinite(Number(payload.lowStock)) ? Math.max(0, Number(payload.lowStock)) : 5,
     updatedAt: Date.now()
   });
+  markRow("products", p2);
   touch("products");
   addLog("product", (id ? "修改商品：" : "新增商品：") + name2 + "（" + money(p2.price) + "/" + p2.unit + "）");
   return p2.id;
@@ -15230,6 +15252,7 @@ function updateOrderReceived(orderId, received) {
   if (!o) return false;
   o.received = r2(received);
   o.updatedAt = Date.now();
+  markRow("orders", o);
   touch("orders");
   addLog("edit", "改实收：" + money(o.total) + " → " + money(o.received));
   return true;
@@ -15242,6 +15265,7 @@ function voidOrder(orderId) {
   const o = state.collections.orders.find((x) => x.id === orderId);
   if (!o) return false;
   if (o.voided) return true;
+  markRow("orders", o);
   o.items.forEach((it) => {
     addQty(state.collections.stocks, it.productId, "store", o.storeId, it.qty);
     pushStockOp(it.productId, "store", o.storeId, r2(it.qty), "order-void", o.id);
@@ -15260,6 +15284,7 @@ function setOrderRemark(orderId, text) {
   if ((o.remark || "") === next) return true;
   o.remark = next;
   o.updatedAt = Date.now();
+  markRow("orders", o);
   touch("orders");
   addLog("order", "改备注：" + (o.remark || "（清空）"), { refId: o.id, storeId: o.storeId });
   flush();
@@ -15276,6 +15301,7 @@ function editOrderItems(orderId, newLines) {
     tip("订单至少要有一行商品");
     return false;
   }
+  markRow("orders", o);
   o.items.forEach((it) => {
     addQty(state.collections.stocks, it.productId, "store", o.storeId, it.qty);
     pushStockOp(it.productId, "store", o.storeId, r2(it.qty), "order-edit-undo", o.id);
@@ -16271,6 +16297,7 @@ function applyTableImport(preview, mode = "merge", fields = null) {
       patch.img = r.img || "";
     }
     Object.assign(p2, patch);
+    markRow("products", p2);
     if (take("stock") && isFinite(r.stock) && store) {
       const before = qtyAt(state.collections.stocks, p2.id, "store", store.id);
       setQty(state.collections.stocks, p2.id, "store", store.id, r2(r.stock));
@@ -16551,6 +16578,14 @@ function useScanner() {
       await el.play();
     } catch (e) {
     }
+    try {
+      const track2 = stream.getVideoTracks()[0];
+      if (track2 && track2.applyConstraints) {
+        await track2.applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {
+        });
+      }
+    } catch (e) {
+    }
     el.onloadedmetadata = () => {
       ready.value = true;
     };
@@ -16563,7 +16598,13 @@ function useScanner() {
     engine.value = "";
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        /* 要高清一点：800px 的帧对 13 位条码太糊，稍微离远就解不出来 */
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          focusMode: { ideal: "continuous" }
+        },
         audio: false
       });
     } catch (e) {
@@ -16593,59 +16634,92 @@ function useScanner() {
     }
     return startZXing(onCode);
   }
+  let zxLib = null;
+  let zxReader = null;
+  async function ensureZXing() {
+    if (zxReader) return zxReader;
+    const zx = await __vitePreload(() => import("./index-CI-TdRA4.js"), true ? [] : void 0, import.meta.url);
+    zxLib = zx;
+    const hints = /* @__PURE__ */ new Map();
+    hints.set(zx.DecodeHintType.POSSIBLE_FORMATS, [
+      zx.BarcodeFormat.EAN_13,
+      zx.BarcodeFormat.EAN_8,
+      zx.BarcodeFormat.UPC_A,
+      zx.BarcodeFormat.UPC_E,
+      zx.BarcodeFormat.CODE_128,
+      zx.BarcodeFormat.CODE_39,
+      zx.BarcodeFormat.ITF,
+      zx.BarcodeFormat.QR_CODE,
+      zx.BarcodeFormat.CODABAR
+    ]);
+    hints.set(zx.DecodeHintType.TRY_HARDER, true);
+    const reader = new zx.MultiFormatReader();
+    reader.setHints(hints);
+    zxReader = reader;
+    return reader;
+  }
+  const work = document.createElement("canvas");
+  const workCtx = work.getContext("2d", { willReadFrequently: true });
+  function decodeRegion(el, sx, sy, sw, sh, outW, invert) {
+    if (!zxLib || !zxReader) return "";
+    const w = Math.max(1, Math.round(outW));
+    const h2 = Math.max(1, Math.round(outW * sh / sw));
+    if (work.width !== w || work.height !== h2) {
+      work.width = w;
+      work.height = h2;
+    }
+    try {
+      workCtx.drawImage(el, sx, sy, sw, sh, 0, 0, w, h2);
+      const frame2 = workCtx.getImageData(0, 0, w, h2);
+      const rgba = frame2.data;
+      const gray = new Uint8ClampedArray(w * h2);
+      for (let i = 0, j = 0; i < rgba.length; i += 4, j++) {
+        const v = rgba[i] * 77 + rgba[i + 1] * 150 + rgba[i + 2] * 29 >> 8;
+        gray[j] = invert ? 255 - v : v;
+      }
+      const source = new zxLib.RGBLuminanceSource(gray, w, h2);
+      for (const bin of [new zxLib.HybridBinarizer(source), new zxLib.GlobalHistogramBinarizer(source)]) {
+        try {
+          const result = zxReader.decode(new zxLib.BinaryBitmap(bin));
+          const code = String(result.getText() || "").trim();
+          if (code) return code;
+        } catch (e) {
+        }
+      }
+    } catch (e) {
+    }
+    return "";
+  }
   async function startZXing(onCode) {
     try {
-      const zx = await __vitePreload(() => import("./index-CI-TdRA4.js"), true ? [] : void 0, import.meta.url);
-      const hints = /* @__PURE__ */ new Map();
-      hints.set(zx.DecodeHintType.POSSIBLE_FORMATS, [
-        zx.BarcodeFormat.EAN_13,
-        zx.BarcodeFormat.EAN_8,
-        zx.BarcodeFormat.UPC_A,
-        zx.BarcodeFormat.UPC_E,
-        zx.BarcodeFormat.CODE_128,
-        zx.BarcodeFormat.CODE_39,
-        zx.BarcodeFormat.ITF,
-        zx.BarcodeFormat.QR_CODE,
-        zx.BarcodeFormat.CODABAR
-      ]);
-      hints.set(zx.DecodeHintType.TRY_HARDER, true);
-      const reader = new zx.MultiFormatReader();
-      reader.setHints(hints);
-      const cv = document.createElement("canvas");
-      const ctx = cv.getContext("2d", { willReadFrequently: true });
+      await ensureZXing();
       engine.value = "zxing";
+      let tick2 = 0;
       const grab = () => {
         if (stopped) return;
         const el = video.value;
         if (el && el.readyState >= 2 && el.videoWidth) {
-          const scale = Math.min(1, 800 / Math.max(el.videoWidth, el.videoHeight));
-          const w = Math.max(1, Math.round(el.videoWidth * scale));
-          const h2 = Math.max(1, Math.round(el.videoHeight * scale));
-          if (cv.width !== w) {
-            cv.width = w;
-            cv.height = h2;
+          tick2++;
+          const vw = el.videoWidth;
+          const vh = el.videoHeight;
+          let code = decodeRegion(el, 0, 0, vw, vh, Math.min(1100, vw), false);
+          if (!code) {
+            const cw = Math.round(vw * 0.62);
+            const ch = Math.round(vh * 0.42);
+            code = decodeRegion(el, (vw - cw) / 2, (vh - ch) / 2, cw, ch, Math.min(1200, cw), false);
           }
-          try {
-            ctx.drawImage(el, 0, 0, w, h2);
-            const frame2 = ctx.getImageData(0, 0, w, h2);
-            const rgba = frame2.data;
-            const gray = new Uint8ClampedArray(w * h2);
-            for (let i = 0, j = 0; i < rgba.length; i += 4, j++) {
-              gray[j] = rgba[i] * 77 + rgba[i + 1] * 150 + rgba[i + 2] * 29 >> 8;
-            }
-            const source = new zx.RGBLuminanceSource(gray, w, h2);
-            const bitmap = new zx.BinaryBitmap(new zx.HybridBinarizer(source));
-            const result = reader.decode(bitmap);
-            const code = String(result.getText() || "").trim();
-            if (code) {
-              stop();
-              onCode(code);
-              return;
-            }
-          } catch (e) {
+          if (!code && tick2 % 4 === 0) {
+            const cw = Math.round(vw * 0.75);
+            const ch = Math.round(vh * 0.55);
+            code = decodeRegion(el, (vw - cw) / 2, (vh - ch) / 2, cw, ch, Math.min(1e3, cw), true);
+          }
+          if (code) {
+            stop();
+            onCode(code);
+            return;
           }
         }
-        timer = setTimeout(grab, 280);
+        timer = setTimeout(grab, 220);
       };
       grab();
       return true;
@@ -16654,6 +16728,34 @@ function useScanner() {
       stop();
       return false;
     }
+  }
+  async function captureDecode() {
+    const el = video.value;
+    if (!el || el.readyState < 2 || !el.videoWidth) {
+      error2.value = "画面还没准备好，等一两秒再点一次。";
+      return "";
+    }
+    try {
+      await ensureZXing();
+    } catch (e) {
+      error2.value = "识别组件没加载起来";
+      return "";
+    }
+    const vw = el.videoWidth;
+    const vh = el.videoHeight;
+    const shots = [
+      { sx: 0, sy: 0, sw: vw, sh: vh, w: Math.min(1600, vw), inv: false },
+      { sx: vw * 0.15, sy: vh * 0.2, sw: vw * 0.7, sh: vh * 0.6, w: Math.min(1400, vw * 0.7), inv: false },
+      { sx: 0, sy: 0, sw: vw, sh: vh, w: Math.min(1600, vw), inv: true }
+    ];
+    for (const sh of shots) {
+      const code = decodeRegion(el, sh.sx, sh.sy, sh.sw, sh.sh, sh.w, sh.inv);
+      if (code) {
+        stop();
+        return code;
+      }
+    }
+    return "";
   }
   function tick(onCode) {
     if (stopped) return;
@@ -16710,7 +16812,7 @@ function useScanner() {
     });
   }
   onBeforeUnmount(stop);
-  return { video, active, ready, error: error2, engine, start, stop, bind };
+  return { video, active, ready, error: error2, engine, start, stop, bind, captureDecode };
 }
 function barcodeMatch(stored, code) {
   const a = String(stored || "").trim();
@@ -16737,18 +16839,24 @@ const _hoisted_7$f = {
 };
 const _hoisted_8$f = {
   key: 0,
+  class: "scan-snap"
+};
+const _hoisted_9$f = ["disabled"];
+const _hoisted_10$e = { class: "hint" };
+const _hoisted_11$d = {
+  key: 1,
   class: "last-hit"
 };
-const _hoisted_9$f = { key: 0 };
-const _hoisted_10$e = {
-  key: 1,
+const _hoisted_12$d = { key: 0 };
+const _hoisted_13$d = {
+  key: 2,
   class: "scan-next"
 };
-const _hoisted_11$d = {
+const _hoisted_14$d = {
   class: "hint",
   style: { "text-align": "center", "margin": "10px 0 0" }
 };
-const _hoisted_12$d = {
+const _hoisted_15$d = {
   class: "scan-manual",
   style: { "margin-bottom": "6px" }
 };
@@ -16767,7 +16875,9 @@ const _sfc_main$g = {
     const emit2 = __emit;
     const manual = /* @__PURE__ */ ref("");
     const last = /* @__PURE__ */ ref("");
-    const { video, active, ready, error: error2, engine, start, stop } = useScanner();
+    const snapBusy = /* @__PURE__ */ ref(false);
+    const snapHint = /* @__PURE__ */ ref("");
+    const { video, active, ready, error: error2, engine, start, stop, captureDecode } = useScanner();
     function close() {
       emit2("update:show", false);
     }
@@ -16788,6 +16898,20 @@ const _sfc_main$g = {
       last.value = v;
       emit2("scan", v);
       stop();
+    }
+    async function snap() {
+      snapBusy.value = true;
+      snapHint.value = "";
+      try {
+        const code = await captureDecode();
+        if (code) {
+          handle(code);
+          return;
+        }
+        snapHint.value = "这张没读到，把条码放在框里、离近一点，再点一次";
+      } finally {
+        snapBusy.value = false;
+      }
     }
     watch(() => props2.show, (v) => {
       if (v) begin();
@@ -16843,17 +16967,25 @@ const _sfc_main$g = {
                 }, "重试")) : createCommentVNode("", true)
               ])) : createCommentVNode("", true)
             ]),
-            last.value ? (openBlock(), createElementBlock("p", _hoisted_8$f, [
-              createTextVNode("已识别 " + toDisplayString(last.value), 1),
-              __props.continuous ? (openBlock(), createElementBlock("span", _hoisted_9$f, " · 已加入本单")) : createCommentVNode("", true)
+            unref(ready) && !last.value ? (openBlock(), createElementBlock("div", _hoisted_8$f, [
+              createBaseVNode("button", {
+                class: "btn ghost",
+                disabled: snapBusy.value,
+                onClick: snap
+              }, toDisplayString(snapBusy.value ? "正在识别这张…" : "拍一下识别"), 9, _hoisted_9$f),
+              createBaseVNode("span", _hoisted_10$e, toDisplayString(snapHint.value || "一直在转但没结果？对着条码拍一张再解"), 1)
             ])) : createCommentVNode("", true),
-            __props.continuous && last.value ? (openBlock(), createElementBlock("div", _hoisted_10$e, [
+            last.value ? (openBlock(), createElementBlock("p", _hoisted_11$d, [
+              createTextVNode("已识别 " + toDisplayString(last.value), 1),
+              __props.continuous ? (openBlock(), createElementBlock("span", _hoisted_12$d, " · 已加入本单")) : createCommentVNode("", true)
+            ])) : createCommentVNode("", true),
+            __props.continuous && last.value ? (openBlock(), createElementBlock("div", _hoisted_13$d, [
               createBaseVNode("button", {
                 class: "btn",
                 onClick: begin
               }, "继续扫下一件")
             ])) : createCommentVNode("", true),
-            createBaseVNode("p", _hoisted_11$d, [
+            createBaseVNode("p", _hoisted_14$d, [
               unref(ready) ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [
                 createTextVNode("识别中（" + toDisplayString(unref(engine) === "native" ? "系统识别" : "兼容识别") + "）· 把条码放进框里，光线不足时靠近一点", 1)
               ], 64)) : unref(error2) ? (openBlock(), createElementBlock(Fragment, { key: 1 }, [
@@ -16862,7 +16994,7 @@ const _sfc_main$g = {
                 createTextVNode("正在准备摄像头…")
               ], 64))
             ]),
-            createBaseVNode("div", _hoisted_12$d, [
+            createBaseVNode("div", _hoisted_15$d, [
               withDirectives(createBaseVNode("input", {
                 "onUpdate:modelValue": _cache[0] || (_cache[0] = ($event) => manual.value = $event),
                 class: "inp",
@@ -16888,7 +17020,7 @@ const _sfc_main$g = {
     };
   }
 };
-const ScanSheet = /* @__PURE__ */ _export_sfc(_sfc_main$g, [["__scopeId", "data-v-9c1c8d03"]]);
+const ScanSheet = /* @__PURE__ */ _export_sfc(_sfc_main$g, [["__scopeId", "data-v-383f1345"]]);
 const _hoisted_1$f = { class: "sell" };
 const _hoisted_2$e = { class: "sell-head" };
 const _hoisted_3$e = { class: "txt" };
@@ -23114,6 +23246,11 @@ const _sfc_main$4 = {
       showNumbers(c.key + " 这一天", rows);
     }
     function exportAnalysis() {
+      return withBusy("正在导出经营分析…", async () => {
+        exportAnalysisNow();
+      });
+    }
+    function exportAnalysisNow() {
       const r = current.value;
       const daily = /* @__PURE__ */ new Map();
       scoped.value.forEach((o) => {
@@ -23656,7 +23793,7 @@ const _sfc_main$4 = {
     };
   }
 };
-const StatsView = /* @__PURE__ */ _export_sfc(_sfc_main$4, [["__scopeId", "data-v-c7f1edd3"]]);
+const StatsView = /* @__PURE__ */ _export_sfc(_sfc_main$4, [["__scopeId", "data-v-7e5a6289"]]);
 function getDefaultExportFromCjs(x) {
   return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, "default") ? x["default"] : x;
 }
@@ -24912,10 +25049,11 @@ const _hoisted_164 = {
   "aria-live": "assertive"
 };
 const _hoisted_165 = { class: "busy-card" };
-const _hoisted_166 = { class: "busy-title" };
-const _hoisted_167 = { class: "busy-text" };
-const _hoisted_168 = { class: "busy-bar" };
-const _hoisted_169 = { class: "busy-hint" };
+const _hoisted_166 = { class: "busy-logo" };
+const _hoisted_167 = { class: "busy-title" };
+const _hoisted_168 = { class: "busy-text" };
+const _hoisted_169 = { class: "busy-bar" };
+const _hoisted_170 = { class: "busy-hint" };
 const _sfc_main$1 = {
   __name: "MeView",
   setup(__props) {
@@ -25333,7 +25471,9 @@ const _sfc_main$1 = {
         return;
       }
       if (!allow("store:write")) return;
-      switchStore(s.id);
+      return withBusy("正在切换到「" + (s.name || "这家店") + "」…", async () => {
+        switchStore(s.id);
+      });
     }
     async function dropDemo() {
       const answer = await stdin_default$2({
@@ -26608,8 +26748,10 @@ const _sfc_main$1 = {
               class: "chip",
               style: { "margin-top": "10px" },
               onClick: _cache[23] || (_cache[23] = ($event) => {
-                logLimit.value = 80;
-                logOpen.value = true;
+                unref(withBusy)("正在打开全部日志…", async () => {
+                  logLimit.value = 80;
+                  logOpen.value = true;
+                });
               })
             }, "查看全部 " + toDisplayString(scopedLogs.value.length) + " 条", 1)
           ])) : createCommentVNode("", true)
@@ -26661,7 +26803,7 @@ const _sfc_main$1 = {
             ])
           ]),
           sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_141, [..._cache[104] || (_cache[104] = [
-            createStaticVNode('<p class="hint" style="line-height:2;" data-v-27736b84> · 数据默认存 IndexedDB（库 <span class="mono" data-v-27736b84>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-27736b84> · <b data-v-27736b84>同步包 ≠ 整机备份</b>（两者导出的数据几乎一样，区别只在「导入时怎么落库」）：<br data-v-27736b84> 　– <b data-v-27736b84>同步包</b>（.json + sync 标记）：导入是<b data-v-27736b84>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-27736b84> 　– <b data-v-27736b84>整机备份</b>（.json，无标记）：导入是<b data-v-27736b84>合并</b>，同 id 取更新时间新的、本机独有的留着 → 目标是备份/迁移，换机时不会因为导入把旧设备上的新数据冲掉。<br data-v-27736b84> 　– 一句话记：<b data-v-27736b84>同步 = 覆盖成一模一样</b>，<b data-v-27736b84>备份 = 合并、谁都不丢</b>。<br data-v-27736b84> · 三种数据包，互不混淆：<b data-v-27736b84>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-27736b84>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-27736b84>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-27736b84> · 店铺包导入规则：本机已有这家店（自己导自己，或这家店本来就归你）→ 直接做一次数据更新； 本机没有 → 建一家「共管店铺」挂进来，商品/仓库/订单/日志一起落地。<br data-v-27736b84> · 「共管」店铺可以随时<b data-v-27736b84>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-27736b84> · 代理端是本站的 <span class="mono" data-v-27736b84>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-27736b84> · <b data-v-27736b84>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-27736b84> · <b data-v-27736b84>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-27736b84> · <b data-v-27736b84>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-27736b84> · <b data-v-27736b84>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-27736b84> · <b data-v-27736b84>代理包导入不会升级成共管</b>：代理包里不带仓库（代理没有仓库权限），店铺标记固定为「代理」， 挂仓库、建仓、给这家店生成代理这几个入口都会被拦下。<br data-v-27736b84> · <b data-v-27736b84>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-27736b84> · <b data-v-27736b84>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店主的设备重新导一次店铺包。<br data-v-27736b84> · 店铺带两种「不是自己建的」标记：<b data-v-27736b84>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-27736b84>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-27736b84> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-27736b84> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
+            createStaticVNode('<p class="hint" style="line-height:2;" data-v-b71bbdee> · 数据默认存 IndexedDB（库 <span class="mono" data-v-b71bbdee>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-b71bbdee> · <b data-v-b71bbdee>同步包 ≠ 整机备份</b>（两者导出的数据几乎一样，区别只在「导入时怎么落库」）：<br data-v-b71bbdee> 　– <b data-v-b71bbdee>同步包</b>（.json + sync 标记）：导入是<b data-v-b71bbdee>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-b71bbdee> 　– <b data-v-b71bbdee>整机备份</b>（.json，无标记）：导入是<b data-v-b71bbdee>合并</b>，同 id 取更新时间新的、本机独有的留着 → 目标是备份/迁移，换机时不会因为导入把旧设备上的新数据冲掉。<br data-v-b71bbdee> 　– 一句话记：<b data-v-b71bbdee>同步 = 覆盖成一模一样</b>，<b data-v-b71bbdee>备份 = 合并、谁都不丢</b>。<br data-v-b71bbdee> · 三种数据包，互不混淆：<b data-v-b71bbdee>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-b71bbdee>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-b71bbdee>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-b71bbdee> · 店铺包导入规则：本机已有这家店（自己导自己，或这家店本来就归你）→ 直接做一次数据更新； 本机没有 → 建一家「共管店铺」挂进来，商品/仓库/订单/日志一起落地。<br data-v-b71bbdee> · 「共管」店铺可以随时<b data-v-b71bbdee>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-b71bbdee> · 代理端是本站的 <span class="mono" data-v-b71bbdee>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-b71bbdee> · <b data-v-b71bbdee>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-b71bbdee> · <b data-v-b71bbdee>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-b71bbdee> · <b data-v-b71bbdee>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-b71bbdee> · <b data-v-b71bbdee>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-b71bbdee> · <b data-v-b71bbdee>代理包导入不会升级成共管</b>：代理包里不带仓库（代理没有仓库权限），店铺标记固定为「代理」， 挂仓库、建仓、给这家店生成代理这几个入口都会被拦下。<br data-v-b71bbdee> · <b data-v-b71bbdee>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-b71bbdee> · <b data-v-b71bbdee>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店主的设备重新导一次店铺包。<br data-v-b71bbdee> · 店铺带两种「不是自己建的」标记：<b data-v-b71bbdee>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-b71bbdee>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-b71bbdee> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-b71bbdee> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
           ])])) : createCommentVNode("", true)
         ], 2),
         createVNode(_component_var_popup, {
@@ -26723,7 +26865,9 @@ const _sfc_main$1 = {
                   key: 1,
                   class: "chip",
                   style: { "width": "100%", "margin-top": "10px" },
-                  onClick: _cache[27] || (_cache[27] = ($event) => logLimit.value += 80)
+                  onClick: _cache[27] || (_cache[27] = ($event) => unref(withBusy)("正在加载更多日志…", async () => {
+                    logLimit.value += 80;
+                  }))
                 }, " 还有 " + toDisplayString(scopedLogs.value.length - shownLogs.value.length) + " 条 · 再看 80 条 ", 1)) : createCommentVNode("", true)
               ])
             ])
@@ -26857,14 +27001,17 @@ const _sfc_main$1 = {
         }, null, 8, ["show"]),
         rebuild.value.on ? (openBlock(), createElementBlock("div", _hoisted_164, [
           createBaseVNode("div", _hoisted_165, [
-            createBaseVNode("div", _hoisted_166, toDisplayString(rebuild.value.title), 1),
-            createBaseVNode("div", _hoisted_167, toDisplayString(rebuild.value.text), 1),
-            createBaseVNode("div", _hoisted_168, [
+            createBaseVNode("div", _hoisted_166, [
+              createVNode(BrandMark, { size: 40 })
+            ]),
+            createBaseVNode("div", _hoisted_167, toDisplayString(rebuild.value.title), 1),
+            createBaseVNode("div", _hoisted_168, toDisplayString(rebuild.value.text), 1),
+            createBaseVNode("div", _hoisted_169, [
               createBaseVNode("i", {
                 style: normalizeStyle({ width: rebuild.value.pct + "%" })
               }, null, 4)
             ]),
-            createBaseVNode("div", _hoisted_169, toDisplayString(rebuild.value.mode === "rebuild" ? "完成后页面自动刷新。" : "") + "请不要关闭页面、切到别的标签页或锁屏。", 1)
+            createBaseVNode("div", _hoisted_170, toDisplayString(rebuild.value.mode === "rebuild" ? "完成后页面自动刷新。" : "") + "请不要关闭页面、切到别的标签页或锁屏。", 1)
           ])
         ])) : createCommentVNode("", true),
         createVNode(HelpSheet, {
@@ -26875,7 +27022,7 @@ const _sfc_main$1 = {
     };
   }
 };
-const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-27736b84"]]);
+const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-b71bbdee"]]);
 const errBox = /* @__PURE__ */ reactive({ list: [], count: 0, seen: 0 });
 let installed = false;
 const MAX = 30;
