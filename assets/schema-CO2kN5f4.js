@@ -580,7 +580,11 @@ const COLLECTIONS = [
   /* 库存流水：每一次数量变动都留一条 {productId, locType, locId, delta, reason, refId, at}
      —— 合并时不能只比 updatedAt（A 加了库存、B 卖了货，谁新谁旧都算不对），
         要靠这张流水把两边发生的变动叠加，见 core/merge.js 的 reconcileStocks */
-  "stockOps"
+  "stockOps",
+  /* 【成本】-经营杂费：摊位费、运费、水电燃料、平台推广、宣传物料、人工……
+     一条记录 = 一笔钱 + 一种算法（平摊到某段日子 / 每天固定 / 一次性）。
+     统计时按「这段日子里该摊多少」扣，而不是把一整笔砸在某一天，看盈亏才不失真。 */
+  "expenses"
 ];
 const ROLE = { OWNER: "owner", AGENT: "agent" };
 const UNITS = [
@@ -634,6 +638,9 @@ function defaultSettings() {
     shopName: "我的小摊",
     avatar: "",
     // 头像：dataURL（压缩后）或 http(s) 外链，空就用默认图标
+    /* 【图片】-开启后商品图/头像先传图床（esaimg.cdn1.vip），本机只存链接；
+       关掉就还是老办法：压缩成 dataURL 存本机。默认关，不擅自把用户的图传到第三方 */
+    imageHost: false,
     // —— 收银台设置（店主配，代理端共用同一份设置、不能改）——
     showCost: true,
     // 店主视角是否显示成本/毛利（代理永远不显示）
@@ -664,7 +671,7 @@ function defaultMeta() {
   };
 }
 function newId(prefix = "x") {
-  return prefix + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
+  return prefix + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
 }
 export {
   COLLECTIONS as C,
