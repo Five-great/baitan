@@ -662,6 +662,10 @@ function defaultMeta() {
     role: ROLE.OWNER,
     agentId: "",
     // 代理模式下的代理 id
+    authUserId: "",
+    // 登录后：Authing 用户 id（跨设备的用户层唯一标识）
+    authEmail: "",
+    // 登录后：账号邮箱，界面上显示用
     schemaVersion: 1,
     updatedAt: 0,
     lastSyncAt: 0,
