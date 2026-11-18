@@ -13363,10 +13363,11 @@ async function loginEmail(email, password) {
     return u;
   });
 }
-async function registerEmail(email, password) {
+async function registerEmail(email, password, profile) {
   return run(async () => {
     const c = await client();
-    await c.registerByEmail(String(email || "").trim(), String(password || ""));
+    const prof = profile && Object.keys(profile).length ? profile : void 0;
+    await c.registerByEmail(String(email || "").trim(), String(password || ""), prof);
     try {
       const res = await c.loginByEmail(String(email || "").trim(), String(password || ""));
       let u = null;
@@ -13384,6 +13385,12 @@ async function registerEmail(email, password) {
     }
     return { user: null, needVerify: true };
   });
+}
+function setAuthDisplayName(name2) {
+  const v = String(name2 || "").trim();
+  if (!v) return;
+  authUser.name = v;
+  writeCache({ ...authUser });
 }
 async function logoutAuth() {
   try {
@@ -17586,8 +17593,8 @@ const _hoisted_12$d = ["data-on"];
 const _hoisted_13$d = ["data-on", "onClick"];
 const _hoisted_14$d = { class: "list" };
 const _hoisted_15$d = { class: "meta" };
-const _hoisted_16$c = { class: "ctrl" };
-const _hoisted_17$c = ["onClick"];
+const _hoisted_16$d = { class: "ctrl" };
+const _hoisted_17$d = ["onClick"];
 const _hoisted_18$c = ["value", "onChange", "onKeyup"];
 const _hoisted_19$b = ["onClick"];
 const _hoisted_20$b = {
@@ -18043,7 +18050,7 @@ const _sfc_main$g = {
                         createBaseVNode("b", null, toDisplayString(p2.name), 1),
                         createBaseVNode("span", null, toDisplayString(unref(money)(p2.price)) + " / " + toDisplayString(p2.unit) + " · 库存 " + toDisplayString(unref(fmtQty)(unref(storeStockOf)(p2.id), p2.unit)), 1)
                       ]),
-                      createBaseVNode("div", _hoisted_16$c, [
+                      createBaseVNode("div", _hoisted_16$d, [
                         qtyOf(p2.id) > 0 ? (openBlock(), createElementBlock("button", {
                           key: 0,
                           class: "round",
@@ -18053,7 +18060,7 @@ const _sfc_main$g = {
                             name: "minus",
                             size: 14
                           })
-                        ], 8, _hoisted_17$c)) : createCommentVNode("", true),
+                        ], 8, _hoisted_17$d)) : createCommentVNode("", true),
                         qtyOf(p2.id) > 0 ? (openBlock(), createElementBlock("input", {
                           key: 1,
                           class: "qty-in tnum",
@@ -18461,12 +18468,12 @@ const _hoisted_12$c = ["title"];
 const _hoisted_13$c = ["title"];
 const _hoisted_14$c = { class: "bs-ico" };
 const _hoisted_15$c = { class: "quick-mini" };
-const _hoisted_16$b = {
+const _hoisted_16$c = {
   key: 0,
   class: "banner jade",
   style: { "margin-top": "14px" }
 };
-const _hoisted_17$b = { class: "sec-head" };
+const _hoisted_17$c = { class: "sec-head" };
 const _hoisted_18$b = { class: "hint" };
 const _hoisted_19$a = { class: "card" };
 const _hoisted_20$a = ["onClick"];
@@ -18670,7 +18677,7 @@ const _sfc_main$f = {
             _cache[21] || (_cache[21] = createBaseVNode("span", null, "扫码查价", -1))
           ])
         ]),
-        unref(isAgent) ? (openBlock(), createElementBlock("div", _hoisted_16$b, [
+        unref(isAgent) ? (openBlock(), createElementBlock("div", _hoisted_16$c, [
           createVNode(_sfc_main$n, {
             name: "alert",
             size: 16
@@ -18678,7 +18685,7 @@ const _sfc_main$f = {
           _cache[22] || (_cache[22] = createTextVNode(" 你在代卖点模式：能开单、能挂单，商品和库存是店主的，不能改。 ", -1))
         ])) : createCommentVNode("", true),
         unref(holds).length ? (openBlock(), createElementBlock(Fragment, { key: 1 }, [
-          createBaseVNode("div", _hoisted_17$b, [
+          createBaseVNode("div", _hoisted_17$c, [
             _cache[23] || (_cache[23] = createBaseVNode("h2", null, "挂着的单", -1)),
             _cache[24] || (_cache[24] = createBaseVNode("div", { class: "line" }, null, -1)),
             createBaseVNode("span", _hoisted_18$b, toDisplayString(unref(holds).length), 1)
@@ -19020,8 +19027,8 @@ const _hoisted_15$b = {
   key: 0,
   style: { "margin-bottom": "8px" }
 };
-const _hoisted_16$a = { class: "grid2" };
-const _hoisted_17$a = { class: "field-label" };
+const _hoisted_16$b = { class: "grid2" };
+const _hoisted_17$b = { class: "field-label" };
 const _hoisted_18$a = ["step"];
 const _hoisted_19$9 = { class: "inp-with-btn" };
 const _hoisted_20$9 = {
@@ -19418,9 +19425,9 @@ const _sfc_main$c = {
                     title: "选择仓库"
                   }, null, 8, ["modelValue", "options"])
                 ])) : createCommentVNode("", true),
-                createBaseVNode("div", _hoisted_16$a, [
+                createBaseVNode("div", _hoisted_16$b, [
                   createBaseVNode("div", null, [
-                    createBaseVNode("div", _hoisted_17$a, "数量（" + toDisplayString(unitLabel.value) + "）", 1),
+                    createBaseVNode("div", _hoisted_17$b, "数量（" + toDisplayString(unitLabel.value) + "）", 1),
                     withDirectives(createBaseVNode("input", {
                       "onUpdate:modelValue": _cache[15] || (_cache[15] = ($event) => stockQty.value = $event),
                       class: "inp num-input",
@@ -19576,12 +19583,12 @@ const _hoisted_12$a = {
 const _hoisted_13$a = { class: "imp" };
 const _hoisted_14$a = { class: "num" };
 const _hoisted_15$a = { class: "num" };
-const _hoisted_16$9 = {
+const _hoisted_16$a = {
   key: 0,
   class: "hint",
   style: { "margin-top": "6px" }
 };
-const _hoisted_17$9 = { class: "field-label" };
+const _hoisted_17$a = { class: "field-label" };
 const _hoisted_18$9 = { class: "mode-row" };
 const _hoisted_19$8 = ["data-on", "onClick"];
 const _hoisted_20$8 = {
@@ -19782,8 +19789,8 @@ const _sfc_main$b = {
                     ]);
                   }), 128))
                 ]),
-                preview.value.rows.length > 8 ? (openBlock(), createElementBlock("div", _hoisted_16$9, "还有 " + toDisplayString(preview.value.rows.length - 8) + " 行没显示", 1)) : createCommentVNode("", true),
-                createBaseVNode("div", _hoisted_17$9, "同名商品怎么办（店里有 " + toDisplayString(stats.value.same.length) + " 个重名）", 1),
+                preview.value.rows.length > 8 ? (openBlock(), createElementBlock("div", _hoisted_16$a, "还有 " + toDisplayString(preview.value.rows.length - 8) + " 行没显示", 1)) : createCommentVNode("", true),
+                createBaseVNode("div", _hoisted_17$a, "同名商品怎么办（店里有 " + toDisplayString(stats.value.same.length) + " 个重名）", 1),
                 createBaseVNode("div", _hoisted_18$9, [
                   (openBlock(), createElementBlock(Fragment, null, renderList([["merge", "覆盖勾选字段"], ["skip", "跳过不动"], ["new", "另建一个"]], (m) => {
                     return createBaseVNode("button", {
@@ -19904,8 +19911,8 @@ const _hoisted_14$9 = {
   class: "caret ghost"
 };
 const _hoisted_15$9 = ["onKeyup"];
-const _hoisted_16$8 = ["onClick"];
-const _hoisted_17$8 = { class: "cat-name" };
+const _hoisted_16$9 = ["onClick"];
+const _hoisted_17$9 = { class: "cat-name" };
 const _hoisted_18$8 = { class: "cat-sub" };
 const _hoisted_19$7 = { key: 0 };
 const _hoisted_20$7 = {
@@ -20258,13 +20265,13 @@ const _sfc_main$a = {
                       createBaseVNode("button", {
                         class: "mini",
                         onClick: ($event) => commitEdit(t2)
-                      }, "保存", 8, _hoisted_16$8),
+                      }, "保存", 8, _hoisted_16$9),
                       createBaseVNode("button", {
                         class: "mini",
                         onClick: _cache[7] || (_cache[7] = ($event) => editId.value = "")
                       }, "取消")
                     ], 64)) : (openBlock(), createElementBlock(Fragment, { key: 3 }, [
-                      createBaseVNode("span", _hoisted_17$8, [
+                      createBaseVNode("span", _hoisted_17$9, [
                         createBaseVNode("b", null, toDisplayString(t2.name), 1),
                         createBaseVNode("span", _hoisted_18$8, [
                           createTextVNode(toDisplayString(t2.count) + " 个商品", 1),
@@ -20514,11 +20521,11 @@ const _hoisted_12$8 = { class: "arrow-num" };
 const _hoisted_13$8 = { class: "col to" };
 const _hoisted_14$8 = { class: "col-meta" };
 const _hoisted_15$8 = { class: "qty-in-loc" };
-const _hoisted_16$7 = {
+const _hoisted_16$8 = {
   key: 0,
   class: "cost"
 };
-const _hoisted_17$7 = { class: "split-ops" };
+const _hoisted_17$8 = { class: "split-ops" };
 const _hoisted_18$7 = { class: "stepper" };
 const _hoisted_19$6 = ["onClick"];
 const _hoisted_20$6 = ["value", "onChange"];
@@ -20704,11 +20711,11 @@ const _sfc_main$9 = {
                       createBaseVNode("div", _hoisted_14$8, [
                         createBaseVNode("b", null, toDisplayString(r.child ? r.child.name : "未关联分装商品"), 1),
                         createBaseVNode("span", _hoisted_15$8, "现有 " + toDisplayString(unref(fmtQty)(r.childQty, r.child ? r.child.unit : "份")), 1),
-                        unref(showCost) && r.child ? (openBlock(), createElementBlock("span", _hoisted_16$7, "成本 " + toDisplayString(childUnitCost(r)) + "/份", 1)) : createCommentVNode("", true)
+                        unref(showCost) && r.child ? (openBlock(), createElementBlock("span", _hoisted_16$8, "成本 " + toDisplayString(childUnitCost(r)) + "/份", 1)) : createCommentVNode("", true)
                       ])
                     ])
                   ]),
-                  createBaseVNode("div", _hoisted_17$7, [
+                  createBaseVNode("div", _hoisted_17$8, [
                     _cache[5] || (_cache[5] = createBaseVNode("span", { class: "ops-label" }, "拆几卷", -1)),
                     createBaseVNode("div", _hoisted_18$7, [
                       createBaseVNode("button", {
@@ -20796,8 +20803,8 @@ const _hoisted_13$7 = {
 };
 const _hoisted_14$7 = ["data-on"];
 const _hoisted_15$7 = { class: "n" };
-const _hoisted_16$6 = ["data-on"];
-const _hoisted_17$6 = ["data-on", "onClick"];
+const _hoisted_16$7 = ["data-on"];
+const _hoisted_17$7 = ["data-on", "onClick"];
 const _hoisted_18$6 = { class: "n" };
 const _hoisted_19$5 = {
   key: 4,
@@ -21054,7 +21061,7 @@ const _sfc_main$8 = {
           createBaseVNode("button", {
             "data-on": cat.value === "stock",
             onClick: _cache[6] || (_cache[6] = ($event) => cat.value = "stock")
-          }, "有库存 " + toDisplayString(stockCount.value), 9, _hoisted_16$6),
+          }, "有库存 " + toDisplayString(stockCount.value), 9, _hoisted_16$7),
           (openBlock(true), createElementBlock(Fragment, null, renderList(tree.value, (x) => {
             return openBlock(), createElementBlock("button", {
               key: x.id,
@@ -21063,7 +21070,7 @@ const _sfc_main$8 = {
             }, [
               createTextVNode(toDisplayString(x.name), 1),
               createBaseVNode("span", _hoisted_18$6, toDisplayString(x.n), 1)
-            ], 8, _hoisted_17$6);
+            ], 8, _hoisted_17$7);
           }), 128))
         ]),
         activeParent.value && activeParent.value.children.length ? (openBlock(), createElementBlock("div", _hoisted_19$5, [
@@ -21168,8 +21175,8 @@ const _hoisted_12$6 = ["onClick"];
 const _hoisted_13$6 = { class: "wh-top" };
 const _hoisted_14$6 = { class: "wh-ico" };
 const _hoisted_15$6 = { class: "wtag" };
-const _hoisted_16$5 = { class: "wh-name" };
-const _hoisted_17$5 = { class: "wh-value tnum" };
+const _hoisted_16$6 = { class: "wh-name" };
+const _hoisted_17$6 = { class: "wh-value tnum" };
 const _hoisted_18$5 = { class: "wh-foot" };
 const _hoisted_19$4 = {
   key: 0,
@@ -21352,6 +21359,9 @@ const _sfc_main$7 = {
       return row ? r2(row.qty) : 0;
     };
     function openJob(act = "in") {
+      return withBusy("正在打开仓库作业面板…", () => openJobNow(act));
+    }
+    function openJobNow(act = "in") {
       jobAct.value = act;
       jobQty.value = {};
       jobSearch.value = "";
@@ -21361,7 +21371,10 @@ const _sfc_main$7 = {
       jobShow.value = false;
       jobQty.value = {};
     }
-    async function goRefill(r) {
+    function goRefill(r) {
+      return withBusy("正在定位要补货的商品…", () => goRefillNow(r));
+    }
+    async function goRefillNow(r) {
       const whId = r.bestWh || r.whIds[0];
       if (!whId) {
         openDetail("");
@@ -21398,6 +21411,9 @@ const _sfc_main$7 = {
       transfer: "调货到店：仓里减少、店里增加；一次填多款就一次发过去（批量）"
     })[jobAct.value]);
     function submitJob() {
+      return withBusy("正在保存仓库作业…", submitJobNow, { immediate: true, min: 400 });
+    }
+    function submitJobNow() {
       if (!jobFilled.value.length) {
         tip("先给要处理的商品填上数量");
         return;
@@ -21436,6 +21452,11 @@ const _sfc_main$7 = {
     }
     const qtyInput = /* @__PURE__ */ ref({});
     const newWh = /* @__PURE__ */ ref({ show: false, name: "", note: "" });
+    function loadMoreWh() {
+      return withBusy("正在加载更多库存…", async () => {
+        whLimit.value += WH_PAGE;
+      });
+    }
     function closeWhDetail() {
       return withBusy("正在收起仓库明细…", async () => {
         detailId.value = "";
@@ -21456,6 +21477,9 @@ const _sfc_main$7 = {
     const detailStores = computed(() => detailId.value ? storesUsingWarehouse(detailId.value) : []);
     const detailOwner = computed(() => detailWh.value ? warehouseOwnerText(detailWh.value) : "");
     function exportWhStock() {
+      return withBusy("正在导出库存表…", exportWhStockNow, { immediate: true, min: 350 });
+    }
+    function exportWhStockNow() {
       const w = detailWh.value;
       if (!w) return;
       const rows = [["仓库", "商品名称", "分类", "条形码", "单位", "仓库数量", "成本单价", "成本合计", "成本口径货值"]];
@@ -21496,11 +21520,16 @@ const _sfc_main$7 = {
         cancelButtonText: "再想想"
       });
       if (answer !== "confirm") return;
-      if (deleteWarehouse(w.id)) {
-        detailId.value = "";
-      }
+      return withBusy("正在删除仓库…", async () => {
+        if (deleteWarehouse(w.id)) {
+          detailId.value = "";
+        }
+      }, { immediate: true, min: 400 });
     }
     function doTransfer(line) {
+      return withBusy("正在调拨到本店…", () => doTransferNow(line), { immediate: true, min: 350 });
+    }
+    function doTransferNow(line) {
       const n2 = parseFloat(qtyInput.value[line.product.id]);
       if (!(n2 > 0)) {
         tip("先填调拨数量");
@@ -21512,6 +21541,9 @@ const _sfc_main$7 = {
       }
     }
     function attach(w) {
+      return withBusy("正在把仓库挂到本店…", () => attachNow(w), { immediate: true, min: 350 });
+    }
+    function attachNow(w) {
       if (!allow("warehouse:write")) {
         tip("代理不能改仓库归属");
         return;
@@ -21537,6 +21569,9 @@ const _sfc_main$7 = {
       }
     }
     function detach(w) {
+      return withBusy("正在取消挂载…", () => detachNow(w), { immediate: true, min: 300 });
+    }
+    function detachNow(w) {
       if (!allow("warehouse:write")) {
         tip("代理不能改仓库归属");
         return;
@@ -21552,6 +21587,9 @@ const _sfc_main$7 = {
       tip("已取消挂载「" + w.name + "」");
     }
     function createWh() {
+      return withBusy("正在建仓…", createWhNow, { immediate: true, min: 300 });
+    }
+    function createWhNow() {
       if (!newWh.value.name.trim()) {
         tip("仓库名不能空");
         return;
@@ -21685,11 +21723,11 @@ const _sfc_main$7 = {
       const _component_var_button = resolveComponent("var-button");
       return openBlock(), createElementBlock("div", _hoisted_1$7, [
         createBaseVNode("div", _hoisted_2$7, [
-          _cache[25] || (_cache[25] = createBaseVNode("div", null, [
+          _cache[24] || (_cache[24] = createBaseVNode("div", null, [
             createBaseVNode("div", { class: "title" }, "仓库"),
             createBaseVNode("div", { class: "sub" }, "货先进仓，再按天发放到店")
           ], -1)),
-          _cache[26] || (_cache[26] = createBaseVNode("div", { class: "spacer" }, null, -1)),
+          _cache[25] || (_cache[25] = createBaseVNode("div", { class: "spacer" }, null, -1)),
           createBaseVNode("button", {
             class: "icon-btn",
             "aria-label": "新增仓库",
@@ -21703,10 +21741,10 @@ const _sfc_main$7 = {
         ]),
         createBaseVNode("div", _hoisted_3$7, [
           createBaseVNode("div", _hoisted_4$7, [
-            _cache[29] || (_cache[29] = createBaseVNode("span", null, "仓库总货值", -1)),
+            _cache[28] || (_cache[28] = createBaseVNode("span", null, "仓库总货值", -1)),
             createBaseVNode("b", _hoisted_5$7, [
-              _cache[27] || (_cache[27] = createBaseVNode("em", null, "¥", -1)),
-              _cache[28] || (_cache[28] = createTextVNode(toDisplayString(" "), -1)),
+              _cache[26] || (_cache[26] = createBaseVNode("em", null, "¥", -1)),
+              _cache[27] || (_cache[27] = createTextVNode(toDisplayString(" "), -1)),
               createVNode(MoneyText, {
                 value: allWh.value.value,
                 label: "仓库总货值",
@@ -21716,18 +21754,18 @@ const _sfc_main$7 = {
           ]),
           createBaseVNode("div", _hoisted_6$7, [
             createBaseVNode("div", null, [
-              _cache[30] || (_cache[30] = createBaseVNode("span", null, "在库商品", -1)),
+              _cache[29] || (_cache[29] = createBaseVNode("span", null, "在库商品", -1)),
               createBaseVNode("b", _hoisted_7$7, toDisplayString(allWh.value.lines), 1)
             ]),
             createBaseVNode("div", null, [
-              _cache[31] || (_cache[31] = createBaseVNode("span", null, "仓库", -1)),
+              _cache[30] || (_cache[30] = createBaseVNode("span", null, "仓库", -1)),
               createBaseVNode("b", _hoisted_8$7, toDisplayString(allWh.value.count), 1)
             ])
           ])
         ]),
         createBaseVNode("div", _hoisted_9$7, [
           createBaseVNode("h2", null, toDisplayString(store.value ? store.value.name : "") + " 的供货仓", 1),
-          _cache[32] || (_cache[32] = createBaseVNode("div", { class: "line" }, null, -1)),
+          _cache[31] || (_cache[31] = createBaseVNode("div", { class: "line" }, null, -1)),
           createBaseVNode("span", _hoisted_10$6, toDisplayString(mine.value.length) + " 个", 1)
         ]),
         createBaseVNode("div", _hoisted_11$6, [
@@ -21746,8 +21784,8 @@ const _sfc_main$7 = {
                 ]),
                 createBaseVNode("span", _hoisted_15$6, toDisplayString(unref(warehouseOwnerText)(x.w)), 1)
               ]),
-              createBaseVNode("b", _hoisted_16$5, toDisplayString(x.w.name), 1),
-              createBaseVNode("div", _hoisted_17$5, [
+              createBaseVNode("b", _hoisted_16$6, toDisplayString(x.w.name), 1),
+              createBaseVNode("div", _hoisted_17$6, [
                 createVNode(MoneyText, {
                   value: x.ov.value,
                   label: x.w.name + "·成本货值",
@@ -21756,18 +21794,18 @@ const _sfc_main$7 = {
               ]),
               createBaseVNode("div", _hoisted_18$5, [
                 createBaseVNode("span", null, toDisplayString(x.ov.count) + " 款在库", 1),
-                _cache[33] || (_cache[33] = createBaseVNode("span", { class: "dot" }, "·", -1)),
+                _cache[32] || (_cache[32] = createBaseVNode("span", { class: "dot" }, "·", -1)),
                 createBaseVNode("span", null, toDisplayString(unref(storesUsingWarehouse)(x.w.id).length) + " 店在用", 1)
               ])
             ], 8, _hoisted_12$6);
           }), 128))
         ]),
-        !mine.value.length ? (openBlock(), createElementBlock("div", _hoisted_19$4, [..._cache[34] || (_cache[34] = [
+        !mine.value.length ? (openBlock(), createElementBlock("div", _hoisted_19$4, [..._cache[33] || (_cache[33] = [
           createBaseVNode("b", null, "本店还没有供货仓", -1),
           createTextVNode("下面挂一个仓库上来，就能从仓里往店里发货 ", -1)
         ])])) : createCommentVNode("", true),
         others.value.length ? (openBlock(), createElementBlock(Fragment, { key: 1 }, [
-          _cache[35] || (_cache[35] = createBaseVNode("div", { class: "sec-head" }, [
+          _cache[34] || (_cache[34] = createBaseVNode("div", { class: "sec-head" }, [
             createBaseVNode("h2", null, "未挂载的仓库"),
             createBaseVNode("div", { class: "line" }),
             createBaseVNode("span", { class: "hint" }, "不计入本店库存")
@@ -21808,7 +21846,7 @@ const _sfc_main$7 = {
           ])
         ], 64)) : createCommentVNode("", true),
         refills.value.length ? (openBlock(), createElementBlock(Fragment, { key: 2 }, [
-          _cache[37] || (_cache[37] = createBaseVNode("div", { class: "sec-head" }, [
+          _cache[36] || (_cache[36] = createBaseVNode("div", { class: "sec-head" }, [
             createBaseVNode("h2", null, "该往下发的货"),
             createBaseVNode("div", { class: "line" }),
             createBaseVNode("span", { class: "hint" }, "店内见底")
@@ -21831,7 +21869,7 @@ const _sfc_main$7 = {
                   createBaseVNode("span", null, "店内剩 " + toDisplayString(unref(fmtQty)(r.store, r.product.unit)) + " · 仓里还有 " + toDisplayString(unref(fmtQty)(r.whTotal, r.product.unit)), 1)
                 ]),
                 createBaseVNode("span", _hoisted_30$4, [
-                  _cache[36] || (_cache[36] = createTextVNode("去调拨", -1)),
+                  _cache[35] || (_cache[35] = createTextVNode("去调拨", -1)),
                   createVNode(_sfc_main$n, {
                     name: "chev",
                     size: 14
@@ -21843,7 +21881,7 @@ const _sfc_main$7 = {
         ], 64)) : createCommentVNode("", true),
         focusOp.value ? (openBlock(), createElementBlock("div", _hoisted_31$4, [
           createBaseVNode("div", _hoisted_32$4, [
-            _cache[38] || (_cache[38] = createBaseVNode("span", { class: "of-tag" }, "来自日志", -1)),
+            _cache[37] || (_cache[37] = createBaseVNode("span", { class: "of-tag" }, "来自日志", -1)),
             createBaseVNode("b", null, toDisplayString(focusOp.value.product) + " · " + toDisplayString(focusOp.value.delta > 0 ? "+" : "") + toDisplayString(focusOp.value.delta), 1),
             createBaseVNode("button", {
               class: "icon-btn",
@@ -21858,32 +21896,32 @@ const _sfc_main$7 = {
           ]),
           createBaseVNode("div", _hoisted_33$4, [
             createBaseVNode("div", _hoisted_34$3, [
-              _cache[39] || (_cache[39] = createBaseVNode("span", null, "原因", -1)),
+              _cache[38] || (_cache[38] = createBaseVNode("span", null, "原因", -1)),
               createBaseVNode("b", null, toDisplayString(focusOp.value.reasonText), 1)
             ]),
             focusOp.value.merged ? (openBlock(), createElementBlock("div", _hoisted_35$3, [
-              _cache[40] || (_cache[40] = createBaseVNode("span", null, "去向", -1)),
+              _cache[39] || (_cache[39] = createBaseVNode("span", null, "去向", -1)),
               createBaseVNode("b", null, toDisplayString(focusOp.value.fromText) + " → " + toDisplayString(focusOp.value.toText), 1)
             ])) : (openBlock(), createElementBlock("div", _hoisted_36$3, [
-              _cache[41] || (_cache[41] = createBaseVNode("span", null, "位置", -1)),
+              _cache[40] || (_cache[40] = createBaseVNode("span", null, "位置", -1)),
               createBaseVNode("b", null, toDisplayString(focusOp.value.locType === "warehouse" ? "仓库 · " + (focusOp.value.wh || "—") : "店铺 · " + (focusOp.value.wh || "本店")), 1)
             ])),
             createBaseVNode("div", _hoisted_37$3, [
-              _cache[42] || (_cache[42] = createBaseVNode("span", null, "操作人", -1)),
+              _cache[41] || (_cache[41] = createBaseVNode("span", null, "操作人", -1)),
               createBaseVNode("b", null, toDisplayString(focusOp.value.who || "本机"), 1)
             ]),
             createBaseVNode("div", _hoisted_38$3, [
-              _cache[43] || (_cache[43] = createBaseVNode("span", null, "时间", -1)),
+              _cache[42] || (_cache[42] = createBaseVNode("span", null, "时间", -1)),
               createBaseVNode("b", null, toDisplayString(unref(fmtTime)(focusOp.value.at)), 1)
             ]),
             createBaseVNode("div", _hoisted_39$3, [
-              _cache[44] || (_cache[44] = createBaseVNode("span", null, "流水号", -1)),
+              _cache[43] || (_cache[43] = createBaseVNode("span", null, "流水号", -1)),
               createBaseVNode("b", _hoisted_40$3, toDisplayString(focusOp.value.merged ? focusOp.value.legs.map((l) => l.id).join(" / ") : focusOp.value.id), 1)
             ])
           ])
         ])) : createCommentVNode("", true),
         recentOps.value.length ? (openBlock(), createElementBlock(Fragment, { key: 4 }, [
-          _cache[45] || (_cache[45] = createBaseVNode("div", {
+          _cache[44] || (_cache[44] = createBaseVNode("div", {
             class: "sec-head",
             id: "wh-log"
           }, [
@@ -21931,14 +21969,14 @@ const _sfc_main$7 = {
             name: "list",
             size: 15
           }),
-          _cache[46] || (_cache[46] = createBaseVNode("span", null, "仓库怎么用", -1)),
+          _cache[45] || (_cache[45] = createBaseVNode("span", null, "仓库怎么用", -1)),
           createVNode(_sfc_main$n, {
             name: sec.value.help ? "minus" : "plus",
             size: 14
           }, null, 8, ["name"])
         ]),
-        sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_48$3, [..._cache[47] || (_cache[47] = [
-          createStaticVNode('<div class="how" data-v-4a3e926c><b data-v-4a3e926c>1</b><span data-v-4a3e926c>买回来的货先进仓库，「入库」是在原有数量上累加，「盘点」是直接改成你数出来的数。</span></div><div class="how" data-v-4a3e926c><b data-v-4a3e926c>2</b><span data-v-4a3e926c>出摊前把今天要卖的量「发放」到店铺，店内库存才是能卖的量。</span></div><div class="how" data-v-4a3e926c><b data-v-4a3e926c>3</b><span data-v-4a3e926c>调拨是整笔成功的：仓里不够就整笔拒绝，不会半路少货。</span></div><div class="how" data-v-4a3e926c><b data-v-4a3e926c>4</b><span data-v-4a3e926c>一家店的商品总数 = 店内 + 已挂载仓库的货；没挂载的仓库，里面的同款货不算给这家店。</span></div>', 4)
+        sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_48$3, [..._cache[46] || (_cache[46] = [
+          createStaticVNode('<div class="how" data-v-43c991d8><b data-v-43c991d8>1</b><span data-v-43c991d8>买回来的货先进仓库，「入库」是在原有数量上累加，「盘点」是直接改成你数出来的数。</span></div><div class="how" data-v-43c991d8><b data-v-43c991d8>2</b><span data-v-43c991d8>出摊前把今天要卖的量「发放」到店铺，店内库存才是能卖的量。</span></div><div class="how" data-v-43c991d8><b data-v-43c991d8>3</b><span data-v-43c991d8>调拨是整笔成功的：仓里不够就整笔拒绝，不会半路少货。</span></div><div class="how" data-v-43c991d8><b data-v-43c991d8>4</b><span data-v-43c991d8>一家店的商品总数 = 店内 + 已挂载仓库的货；没挂载的仓库，里面的同款货不算给这家店。</span></div>', 4)
         ])])) : createCommentVNode("", true),
         createVNode(_component_var_popup, {
           class: "wh-sheet wh-fill",
@@ -21950,9 +21988,9 @@ const _sfc_main$7 = {
         }, {
           default: withCtx(() => [
             createBaseVNode("div", _hoisted_49$3, [
-              _cache[60] || (_cache[60] = createBaseVNode("div", { class: "drag" }, null, -1)),
+              _cache[59] || (_cache[59] = createBaseVNode("div", { class: "drag" }, null, -1)),
               createBaseVNode("header", _hoisted_50$3, [
-                _cache[48] || (_cache[48] = createBaseVNode("div", null, [
+                _cache[47] || (_cache[47] = createBaseVNode("div", null, [
                   createBaseVNode("div", { class: "t" }, "库存流水"),
                   createBaseVNode("div", { class: "s" }, "合并数据时按这里的增减相加，不看快照")
                 ], -1)),
@@ -21969,49 +22007,49 @@ const _sfc_main$7 = {
               ]),
               openOp.value ? (openBlock(), createElementBlock("div", _hoisted_51$3, [
                 createBaseVNode("div", _hoisted_52$3, [
-                  _cache[49] || (_cache[49] = createBaseVNode("span", null, "商品", -1)),
+                  _cache[48] || (_cache[48] = createBaseVNode("span", null, "商品", -1)),
                   createBaseVNode("b", null, toDisplayString(openOp.value.product), 1)
                 ]),
                 createBaseVNode("div", _hoisted_53$3, [
-                  _cache[50] || (_cache[50] = createBaseVNode("span", null, "变动", -1)),
+                  _cache[49] || (_cache[49] = createBaseVNode("span", null, "变动", -1)),
                   createBaseVNode("b", {
                     class: normalizeClass({ minus: openOp.value.delta < 0 })
                   }, toDisplayString(openOp.value.delta > 0 ? "+" : "") + toDisplayString(openOp.value.delta), 3)
                 ]),
                 createBaseVNode("div", _hoisted_54$3, [
-                  _cache[51] || (_cache[51] = createBaseVNode("span", null, "原因", -1)),
+                  _cache[50] || (_cache[50] = createBaseVNode("span", null, "原因", -1)),
                   createBaseVNode("b", null, toDisplayString(openOp.value.reasonText) + "（" + toDisplayString(openOp.value.reason) + "）", 1)
                 ]),
                 openOp.value.merged ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [
                   createBaseVNode("div", _hoisted_55$3, [
-                    _cache[52] || (_cache[52] = createBaseVNode("span", null, "去向", -1)),
+                    _cache[51] || (_cache[51] = createBaseVNode("span", null, "去向", -1)),
                     createBaseVNode("b", null, toDisplayString(openOp.value.fromText) + " → " + toDisplayString(openOp.value.toText), 1)
                   ]),
                   createBaseVNode("div", _hoisted_56$3, [
-                    _cache[53] || (_cache[53] = createBaseVNode("span", null, "数量", -1)),
+                    _cache[52] || (_cache[52] = createBaseVNode("span", null, "数量", -1)),
                     createBaseVNode("b", null, toDisplayString(openOp.value.qty) + "（两条流水，数据各自留着）", 1)
                   ])
                 ], 64)) : (openBlock(), createElementBlock("div", _hoisted_57$3, [
-                  _cache[54] || (_cache[54] = createBaseVNode("span", null, "位置", -1)),
+                  _cache[53] || (_cache[53] = createBaseVNode("span", null, "位置", -1)),
                   createBaseVNode("b", null, toDisplayString(openOp.value.locType === "warehouse" ? "仓库 · " : "店铺 · ") + toDisplayString(openOp.value.wh || "—"), 1)
                 ])),
                 createBaseVNode("div", _hoisted_58$3, [
-                  _cache[55] || (_cache[55] = createBaseVNode("span", null, "操作人", -1)),
+                  _cache[54] || (_cache[54] = createBaseVNode("span", null, "操作人", -1)),
                   createBaseVNode("b", null, toDisplayString(openOp.value.who || "本机"), 1)
                 ]),
                 createBaseVNode("div", _hoisted_59$3, [
-                  _cache[56] || (_cache[56] = createBaseVNode("span", null, "时间", -1)),
+                  _cache[55] || (_cache[55] = createBaseVNode("span", null, "时间", -1)),
                   createBaseVNode("b", null, toDisplayString(unref(fmtTime)(openOp.value.at)), 1)
                 ]),
                 createBaseVNode("div", _hoisted_60$3, [
-                  _cache[57] || (_cache[57] = createBaseVNode("span", null, "关联", -1)),
+                  _cache[56] || (_cache[56] = createBaseVNode("span", null, "关联", -1)),
                   createBaseVNode("b", null, toDisplayString(openOp.value.raw.refId || "—"), 1)
                 ]),
                 createBaseVNode("div", _hoisted_61$3, [
-                  _cache[58] || (_cache[58] = createBaseVNode("span", null, "流水号", -1)),
+                  _cache[57] || (_cache[57] = createBaseVNode("span", null, "流水号", -1)),
                   createBaseVNode("b", null, toDisplayString(openOp.value.merged ? openOp.value.legs.map((l) => l.id).join(" / ") : openOp.value.id), 1)
                 ]),
-                _cache[59] || (_cache[59] = createBaseVNode("p", { class: "kv-hint" }, "这一条是库存变动的原始记录：谁、在哪、动了多少、因为哪一单。日志里只留一句摘要指向它。", -1))
+                _cache[58] || (_cache[58] = createBaseVNode("p", { class: "kv-hint" }, "这一条是库存变动的原始记录：谁、在哪、动了多少、因为哪一单。日志里只留一句摘要指向它。", -1))
               ])) : createCommentVNode("", true)
             ])
           ]),
@@ -22021,13 +22059,13 @@ const _sfc_main$7 = {
           class: "wh-sheet wh-fill",
           show: !!detailId.value,
           position: "bottom",
-          "onUpdate:show": _cache[10] || (_cache[10] = (v) => {
+          "onUpdate:show": _cache[9] || (_cache[9] = (v) => {
             if (!v) closeWhDetail();
           })
         }, {
           default: withCtx(() => [
             createBaseVNode("div", _hoisted_62$3, [
-              _cache[70] || (_cache[70] = createBaseVNode("div", { class: "drag" }, null, -1)),
+              _cache[69] || (_cache[69] = createBaseVNode("div", { class: "drag" }, null, -1)),
               createBaseVNode("header", _hoisted_63$3, [
                 createBaseVNode("div", _hoisted_64$3, [
                   createBaseVNode("b", null, toDisplayString(detailWh.value ? detailWh.value.name : "仓库"), 1),
@@ -22049,15 +22087,15 @@ const _sfc_main$7 = {
                 onClick: showDetailNumbers
               }, [
                 createBaseVNode("div", null, [
-                  _cache[61] || (_cache[61] = createBaseVNode("span", null, "在仓商品", -1)),
+                  _cache[60] || (_cache[60] = createBaseVNode("span", null, "在仓商品", -1)),
                   createBaseVNode("b", _hoisted_66$3, toDisplayString(detail.value.count), 1)
                 ]),
                 createBaseVNode("div", null, [
-                  _cache[62] || (_cache[62] = createBaseVNode("span", null, "成本货值", -1)),
+                  _cache[61] || (_cache[61] = createBaseVNode("span", null, "成本货值", -1)),
                   createBaseVNode("b", _hoisted_67$3, toDisplayString(unref(money)(detail.value.value)), 1)
                 ]),
                 createBaseVNode("div", null, [
-                  _cache[63] || (_cache[63] = createBaseVNode("span", null, "供货门店", -1)),
+                  _cache[62] || (_cache[62] = createBaseVNode("span", null, "供货门店", -1)),
                   createBaseVNode("b", null, toDisplayString(detailStores.value.length ? detailStores.value.length + " 家" : "未挂载"), 1)
                 ])
               ]),
@@ -22074,7 +22112,7 @@ const _sfc_main$7 = {
                     name: "split",
                     size: 15
                   }),
-                  _cache[64] || (_cache[64] = createTextVNode("分装 ", -1))
+                  _cache[63] || (_cache[63] = createTextVNode("分装 ", -1))
                 ])) : createCommentVNode("", true),
                 unref(allow)("stock:write") ? (openBlock(), createElementBlock("button", {
                   key: 1,
@@ -22085,7 +22123,7 @@ const _sfc_main$7 = {
                     name: "box",
                     size: 15
                   }),
-                  _cache[65] || (_cache[65] = createTextVNode("入库 / 盘点 ", -1))
+                  _cache[64] || (_cache[64] = createTextVNode("入库 / 盘点 ", -1))
                 ])) : createCommentVNode("", true),
                 createBaseVNode("button", {
                   class: "act",
@@ -22095,7 +22133,7 @@ const _sfc_main$7 = {
                     name: "download",
                     size: 15
                   }),
-                  _cache[66] || (_cache[66] = createTextVNode("导出表", -1))
+                  _cache[65] || (_cache[65] = createTextVNode("导出表", -1))
                 ]),
                 createBaseVNode("button", {
                   class: "icon-btn",
@@ -22109,7 +22147,7 @@ const _sfc_main$7 = {
                 ])
               ]),
               detailStores.value.length ? (openBlock(), createElementBlock("div", _hoisted_69$3, [
-                _cache[67] || (_cache[67] = createBaseVNode("span", null, "供货给", -1)),
+                _cache[66] || (_cache[66] = createBaseVNode("span", null, "供货给", -1)),
                 (openBlock(true), createElementBlock(Fragment, null, renderList(detailStores.value, (s2) => {
                   return openBlock(), createElementBlock("span", {
                     key: s2.id,
@@ -22155,16 +22193,16 @@ const _sfc_main$7 = {
                 detailRest.value ? (openBlock(), createElementBlock("button", {
                   key: 0,
                   class: "more-row",
-                  onClick: _cache[8] || (_cache[8] = ($event) => whLimit.value += WH_PAGE)
+                  onClick: loadMoreWh
                 }, " 还有 " + toDisplayString(detailRest.value) + " 款 · 再看 " + toDisplayString(Math.min(WH_PAGE, detailRest.value)) + " 款 ", 1)) : createCommentVNode("", true),
                 !detail.value.lines.length ? (openBlock(), createElementBlock("div", _hoisted_78$3, [
-                  _cache[68] || (_cache[68] = createBaseVNode("b", null, "这个仓库是空的", -1)),
-                  _cache[69] || (_cache[69] = createTextVNode("点上面「入库 / 盘点」，把商品和数量记进来 ", -1)),
+                  _cache[67] || (_cache[67] = createBaseVNode("b", null, "这个仓库是空的", -1)),
+                  _cache[68] || (_cache[68] = createTextVNode("点上面「入库 / 盘点」，把商品和数量记进来 ", -1)),
                   unref(allow)("stock:write") ? (openBlock(), createElementBlock("div", _hoisted_79$3, [
                     createBaseVNode("button", {
                       class: "chip",
                       "data-on": true,
-                      onClick: _cache[9] || (_cache[9] = ($event) => openJob("in"))
+                      onClick: _cache[8] || (_cache[8] = ($event) => openJob("in"))
                     }, "去入库")
                   ])) : createCommentVNode("", true)
                 ])) : createCommentVNode("", true)
@@ -22177,17 +22215,17 @@ const _sfc_main$7 = {
           class: "wh-sheet",
           show: moreShow.value,
           position: "bottom",
-          "onUpdate:show": _cache[14] || (_cache[14] = (v) => moreShow.value = v)
+          "onUpdate:show": _cache[13] || (_cache[13] = (v) => moreShow.value = v)
         }, {
           default: withCtx(() => [
             createBaseVNode("div", _hoisted_80$3, [
-              _cache[74] || (_cache[74] = createBaseVNode("div", { class: "drag" }, null, -1)),
+              _cache[73] || (_cache[73] = createBaseVNode("div", { class: "drag" }, null, -1)),
               createBaseVNode("header", _hoisted_81$3, [
-                _cache[71] || (_cache[71] = createBaseVNode("b", null, "仓库操作", -1)),
+                _cache[70] || (_cache[70] = createBaseVNode("b", null, "仓库操作", -1)),
                 createBaseVNode("button", {
                   class: "icon-btn",
                   "aria-label": "关闭",
-                  onClick: _cache[11] || (_cache[11] = ($event) => moreShow.value = false)
+                  onClick: _cache[10] || (_cache[10] = ($event) => moreShow.value = false)
                 }, [
                   createVNode(_sfc_main$n, {
                     name: "close",
@@ -22199,7 +22237,7 @@ const _sfc_main$7 = {
                 mountedHere.value ? (openBlock(), createElementBlock("button", {
                   key: 0,
                   class: "row",
-                  onClick: _cache[12] || (_cache[12] = ($event) => {
+                  onClick: _cache[11] || (_cache[11] = ($event) => {
                     moreShow.value = false;
                     detach(detailWh.value);
                   })
@@ -22210,7 +22248,7 @@ const _sfc_main$7 = {
                       size: 18
                     })
                   ]),
-                  _cache[72] || (_cache[72] = createBaseVNode("span", { class: "txt" }, [
+                  _cache[71] || (_cache[71] = createBaseVNode("span", { class: "txt" }, [
                     createBaseVNode("b", null, "取消挂载"),
                     createBaseVNode("span", null, "本店不再从它补货，仓里的货不动")
                   ], -1))
@@ -22218,7 +22256,7 @@ const _sfc_main$7 = {
                 isOwner.value && unref(allow)("warehouse:write") ? (openBlock(), createElementBlock("button", {
                   key: 1,
                   class: "row",
-                  onClick: _cache[13] || (_cache[13] = ($event) => {
+                  onClick: _cache[12] || (_cache[12] = ($event) => {
                     moreShow.value = false;
                     removeWarehouse();
                   })
@@ -22229,7 +22267,7 @@ const _sfc_main$7 = {
                       size: 18
                     })
                   ]),
-                  _cache[73] || (_cache[73] = createBaseVNode("span", { class: "txt" }, [
+                  _cache[72] || (_cache[72] = createBaseVNode("span", { class: "txt" }, [
                     createBaseVNode("b", { style: { "color": "var(--clay)" } }, "删除仓库"),
                     createBaseVNode("span", null, "仅能删自己建的、且没有任何店铺挂着")
                   ], -1))
@@ -22242,18 +22280,18 @@ const _sfc_main$7 = {
         }, 8, ["show"]),
         createVNode(SplitSheet, {
           show: splitOpen.value,
-          "onUpdate:show": _cache[15] || (_cache[15] = ($event) => splitOpen.value = $event),
+          "onUpdate:show": _cache[14] || (_cache[14] = ($event) => splitOpen.value = $event),
           "default-loc": splitLoc.value
         }, null, 8, ["show", "default-loc"]),
         createVNode(_component_var_popup, {
           class: "wh-sheet wh-fill",
           show: jobShow.value,
           position: "bottom",
-          "onUpdate:show": _cache[20] || (_cache[20] = (v) => jobShow.value = v)
+          "onUpdate:show": _cache[19] || (_cache[19] = (v) => jobShow.value = v)
         }, {
           default: withCtx(() => [
             createBaseVNode("div", _hoisted_86$3, [
-              _cache[80] || (_cache[80] = createBaseVNode("div", { class: "drag" }, null, -1)),
+              _cache[79] || (_cache[79] = createBaseVNode("div", { class: "drag" }, null, -1)),
               createBaseVNode("header", _hoisted_87$2, [
                 createBaseVNode("div", _hoisted_88$2, [
                   createBaseVNode("b", null, toDisplayString(jobAct.value === "transfer" ? "调货到店" : jobAct.value === "count" ? "盘点" : "补货入库") + " · " + toDisplayString(whName.value), 1),
@@ -22273,27 +22311,27 @@ const _sfc_main$7 = {
               createBaseVNode("div", _hoisted_90$2, [
                 createBaseVNode("button", {
                   "data-on": jobAct.value === "in",
-                  onClick: _cache[16] || (_cache[16] = ($event) => {
+                  onClick: _cache[15] || (_cache[15] = ($event) => {
                     jobAct.value = "in";
                     jobQty.value = {};
                   })
-                }, [..._cache[75] || (_cache[75] = [
+                }, [..._cache[74] || (_cache[74] = [
                   createTextVNode("补货入库 ", -1),
                   createBaseVNode("em", null, "+", -1)
                 ])], 8, _hoisted_91$2),
                 createBaseVNode("button", {
                   "data-on": jobAct.value === "count",
-                  onClick: _cache[17] || (_cache[17] = ($event) => {
+                  onClick: _cache[16] || (_cache[16] = ($event) => {
                     jobAct.value = "count";
                     jobQty.value = {};
                   })
-                }, [..._cache[76] || (_cache[76] = [
+                }, [..._cache[75] || (_cache[75] = [
                   createTextVNode("盘点 ", -1),
                   createBaseVNode("em", null, "=", -1)
                 ])], 8, _hoisted_92$2),
                 createBaseVNode("button", {
                   "data-on": jobAct.value === "transfer",
-                  onClick: _cache[18] || (_cache[18] = ($event) => {
+                  onClick: _cache[17] || (_cache[17] = ($event) => {
                     jobAct.value = "transfer";
                     jobQty.value = {};
                   })
@@ -22305,7 +22343,7 @@ const _sfc_main$7 = {
                   size: 16
                 }),
                 withDirectives(createBaseVNode("input", {
-                  "onUpdate:modelValue": _cache[19] || (_cache[19] = ($event) => jobSearch.value = $event),
+                  "onUpdate:modelValue": _cache[18] || (_cache[18] = ($event) => jobSearch.value = $event),
                   placeholder: "搜商品名或条码"
                 }, null, 512), [
                   [vModelText, jobSearch.value]
@@ -22326,7 +22364,7 @@ const _sfc_main$7 = {
                       createBaseVNode("span", _hoisted_97$2, [
                         createTextVNode("现存 " + toDisplayString(unref(fmtQty)(l.have, l.p.unit)), 1),
                         jobAfter(l) !== null ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [
-                          _cache[77] || (_cache[77] = createTextVNode(" → ", -1)),
+                          _cache[76] || (_cache[76] = createTextVNode(" → ", -1)),
                           createBaseVNode("em", null, toDisplayString(unref(fmtQty)(jobAfter(l), l.p.unit)), 1)
                         ], 64)) : createCommentVNode("", true)
                       ])
@@ -22342,7 +22380,7 @@ const _sfc_main$7 = {
                     ])
                   ]);
                 }), 128)),
-                !jobList.value.length ? (openBlock(), createElementBlock("div", _hoisted_99$1, [..._cache[78] || (_cache[78] = [
+                !jobList.value.length ? (openBlock(), createElementBlock("div", _hoisted_99$1, [..._cache[77] || (_cache[77] = [
                   createBaseVNode("b", null, "没找到商品", -1),
                   createTextVNode("换个关键词，或先去「商品」页新建", -1)
                 ])])) : createCommentVNode("", true)
@@ -22360,7 +22398,7 @@ const _sfc_main$7 = {
                   onClick: submitJob
                 }, {
                   default: withCtx(() => [
-                    _cache[79] || (_cache[79] = createTextVNode(" 全部提交", -1)),
+                    _cache[78] || (_cache[78] = createTextVNode(" 全部提交", -1)),
                     jobFilled.value.length ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [
                       createTextVNode("（" + toDisplayString(jobFilled.value.length) + " 款）", 1)
                     ], 64)) : createCommentVNode("", true)
@@ -22376,17 +22414,17 @@ const _sfc_main$7 = {
           class: "wh-sheet wh-fill",
           show: newWh.value.show,
           position: "bottom",
-          "onUpdate:show": _cache[24] || (_cache[24] = (v) => newWh.value.show = v)
+          "onUpdate:show": _cache[23] || (_cache[23] = (v) => newWh.value.show = v)
         }, {
           default: withCtx(() => [
             createBaseVNode("div", _hoisted_104$1, [
-              _cache[85] || (_cache[85] = createBaseVNode("div", { class: "drag" }, null, -1)),
+              _cache[84] || (_cache[84] = createBaseVNode("div", { class: "drag" }, null, -1)),
               createBaseVNode("header", _hoisted_105$1, [
-                _cache[81] || (_cache[81] = createBaseVNode("b", null, "新增仓库", -1)),
+                _cache[80] || (_cache[80] = createBaseVNode("b", null, "新增仓库", -1)),
                 createBaseVNode("button", {
                   class: "icon-btn",
                   "aria-label": "关闭",
-                  onClick: _cache[21] || (_cache[21] = ($event) => newWh.value.show = false)
+                  onClick: _cache[20] || (_cache[20] = ($event) => newWh.value.show = false)
                 }, [
                   createVNode(_sfc_main$n, {
                     name: "close",
@@ -22395,17 +22433,17 @@ const _sfc_main$7 = {
                 ])
               ]),
               createBaseVNode("div", _hoisted_106$1, [
-                _cache[82] || (_cache[82] = createBaseVNode("div", { class: "field-label" }, "仓库名", -1)),
+                _cache[81] || (_cache[81] = createBaseVNode("div", { class: "field-label" }, "仓库名", -1)),
                 withDirectives(createBaseVNode("input", {
-                  "onUpdate:modelValue": _cache[22] || (_cache[22] = ($event) => newWh.value.name = $event),
+                  "onUpdate:modelValue": _cache[21] || (_cache[21] = ($event) => newWh.value.name = $event),
                   class: "inp",
                   placeholder: "例如 家里柜子 / 车库存货"
                 }, null, 512), [
                   [vModelText, newWh.value.name]
                 ]),
-                _cache[83] || (_cache[83] = createBaseVNode("div", { class: "field-label" }, "备注", -1)),
+                _cache[82] || (_cache[82] = createBaseVNode("div", { class: "field-label" }, "备注", -1)),
                 withDirectives(createBaseVNode("input", {
-                  "onUpdate:modelValue": _cache[23] || (_cache[23] = ($event) => newWh.value.note = $event),
+                  "onUpdate:modelValue": _cache[22] || (_cache[22] = ($event) => newWh.value.note = $event),
                   class: "inp",
                   placeholder: "放什么、谁在管"
                 }, null, 512), [
@@ -22419,7 +22457,7 @@ const _sfc_main$7 = {
                   block: "",
                   onClick: createWh
                 }, {
-                  default: withCtx(() => [..._cache[84] || (_cache[84] = [
+                  default: withCtx(() => [..._cache[83] || (_cache[83] = [
                     createTextVNode("建仓并挂到本店", -1)
                   ])]),
                   _: 1
@@ -22433,7 +22471,7 @@ const _sfc_main$7 = {
     };
   }
 };
-const WarehousesView = /* @__PURE__ */ _export_sfc(_sfc_main$7, [["__scopeId", "data-v-4a3e926c"]]);
+const WarehousesView = /* @__PURE__ */ _export_sfc(_sfc_main$7, [["__scopeId", "data-v-43c991d8"]]);
 const _hoisted_1$6 = { class: "page" };
 const _hoisted_2$6 = { class: "topbar" };
 const _hoisted_3$6 = { class: "sub" };
@@ -22452,8 +22490,8 @@ const _hoisted_12$5 = { class: "txt" };
 const _hoisted_13$5 = ["onClick"];
 const _hoisted_14$5 = { key: 0 };
 const _hoisted_15$5 = { key: 1 };
-const _hoisted_16$4 = { class: "order-meta" };
-const _hoisted_17$4 = {
+const _hoisted_16$5 = { class: "order-meta" };
+const _hoisted_17$5 = {
   key: 0,
   class: "order-remark"
 };
@@ -22902,7 +22940,7 @@ const _sfc_main$6 = {
                     }, [
                       isExpanded(o.id) ? (openBlock(), createElementBlock("span", _hoisted_14$5, toDisplayString(o.items.map((it) => it.name).join("、")), 1)) : (openBlock(), createElementBlock("span", _hoisted_15$5, toDisplayString(o.items.map((it) => it.name).slice(0, 2).join("、")) + toDisplayString(o.items.length > 2 ? " 等" : ""), 1))
                     ], 10, _hoisted_13$5),
-                    createBaseVNode("span", _hoisted_16$4, [
+                    createBaseVNode("span", _hoisted_16$5, [
                       createTextVNode(toDisplayString(unref(fmtTime)(o.at)) + " · " + toDisplayString(o.items.length) + "行 ", 1),
                       o.agentId ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [
                         createTextVNode(" · 代理" + toDisplayString(agentName(o.agentId)), 1)
@@ -22912,7 +22950,7 @@ const _sfc_main$6 = {
                         _cache[14] || (_cache[14] = createBaseVNode("b", { style: { "color": "var(--clay)" } }, "大单", -1))
                       ], 64)) : createCommentVNode("", true)
                     ]),
-                    o.remark ? (openBlock(), createElementBlock("span", _hoisted_17$4, toDisplayString(o.remark), 1)) : createCommentVNode("", true)
+                    o.remark ? (openBlock(), createElementBlock("span", _hoisted_17$5, toDisplayString(o.remark), 1)) : createCommentVNode("", true)
                   ]),
                   createBaseVNode("span", _hoisted_18$4, [
                     createBaseVNode("b", null, [
@@ -23511,8 +23549,8 @@ const _hoisted_14$4 = {
   class: "hint"
 };
 const _hoisted_15$4 = { class: "card ana-card" };
-const _hoisted_16$3 = { class: "ana-cmp" };
-const _hoisted_17$3 = { class: "tnum" };
+const _hoisted_16$4 = { class: "ana-cmp" };
+const _hoisted_17$4 = { class: "tnum" };
 const _hoisted_18$3 = {
   key: 1,
   class: "flat"
@@ -24093,10 +24131,10 @@ const _sfc_main$5 = {
           }, "导出表格")) : (openBlock(), createElementBlock("span", _hoisted_14$4, "代理视角只看销售额"))
         ]),
         createBaseVNode("div", _hoisted_15$4, [
-          createBaseVNode("div", _hoisted_16$3, [
+          createBaseVNode("div", _hoisted_16$4, [
             createBaseVNode("div", null, [
               _cache[16] || (_cache[16] = createBaseVNode("span", null, "销售额", -1)),
-              createBaseVNode("b", _hoisted_17$3, toDisplayString(unref(moneyFit)(sum.value.sales)), 1),
+              createBaseVNode("b", _hoisted_17$4, toDisplayString(unref(moneyFit)(sum.value.sales)), 1),
               prev.value && unref(showCost) ? (openBlock(), createElementBlock("em", {
                 key: 0,
                 class: normalizeClass({ down: !delta(sum.value.sales, prev.value.sales).up })
@@ -24926,8 +24964,8 @@ const _hoisted_12$3 = { style: { "display": "flex", "gap": "6px", "margin-top": 
 const _hoisted_13$3 = ["onClick"];
 const _hoisted_14$3 = ["onClick"];
 const _hoisted_15$3 = ["onClick"];
-const _hoisted_16$2 = ["onClick"];
-const _hoisted_17$2 = {
+const _hoisted_16$3 = ["onClick"];
+const _hoisted_17$3 = {
   key: 0,
   class: "empty"
 };
@@ -25132,12 +25170,12 @@ const _sfc_main$4 = {
                         createBaseVNode("button", {
                           class: "chip",
                           onClick: ($event) => copy(x.a.code)
-                        }, "复制编号", 8, _hoisted_16$2)
+                        }, "复制编号", 8, _hoisted_16$3)
                       ])
                     ])
                   ]);
                 }), 128)),
-                !list.value.length ? (openBlock(), createElementBlock("div", _hoisted_17$2, [
+                !list.value.length ? (openBlock(), createElementBlock("div", _hoisted_17$3, [
                   _cache[13] || (_cache[13] = createBaseVNode("b", null, "这家店还没有代理", -1)),
                   createTextVNode(toDisplayString(unref(activeStore) ? unref(activeStore).name : "") + " 名下没有代卖点；别的店的代理不会列在这里 ", 1)
                 ])) : createCommentVNode("", true)
@@ -25404,26 +25442,28 @@ const _sfc_main$3 = {
 };
 const HelpSheet = /* @__PURE__ */ _export_sfc(_sfc_main$3, [["__scopeId", "data-v-e013b39b"]]);
 const _hoisted_1$2 = { class: "sheet login-sheet" };
-const _hoisted_2$2 = { class: "sheet-head" };
-const _hoisted_3$2 = { class: "sheet-body" };
-const _hoisted_4$2 = { class: "account-box" };
-const _hoisted_5$2 = { class: "avatar" };
-const _hoisted_6$2 = { class: "who" };
-const _hoisted_7$2 = { class: "kv" };
-const _hoisted_8$2 = { class: "mono user-id" };
-const _hoisted_9$2 = { class: "tabs" };
-const _hoisted_10$2 = ["data-on"];
-const _hoisted_11$2 = ["data-on"];
-const _hoisted_12$2 = {
+const _hoisted_2$2 = { class: "auth-head" };
+const _hoisted_3$2 = { class: "auth-brand" };
+const _hoisted_4$2 = { class: "brand-chip" };
+const _hoisted_5$2 = { class: "sheet-body" };
+const _hoisted_6$2 = { class: "account-box" };
+const _hoisted_7$2 = { class: "avatar" };
+const _hoisted_8$2 = { class: "who" };
+const _hoisted_9$2 = { class: "kv" };
+const _hoisted_10$2 = { class: "mono user-id" };
+const _hoisted_11$2 = { class: "tabs" };
+const _hoisted_12$2 = ["data-on"];
+const _hoisted_13$2 = ["data-on"];
+const _hoisted_14$2 = {
   key: 0,
   class: "alert"
 };
-const _hoisted_13$2 = {
+const _hoisted_15$2 = {
   key: 1,
   class: "alert jade"
 };
-const _hoisted_14$2 = ["autocomplete"];
-const _hoisted_15$2 = ["disabled"];
+const _hoisted_16$2 = ["autocomplete"];
+const _hoisted_17$2 = ["disabled"];
 const _sfc_main$2 = {
   __name: "LoginSheet",
   props: { show: Boolean },
@@ -25434,6 +25474,7 @@ const _sfc_main$2 = {
     const mode = /* @__PURE__ */ ref("login");
     const email = /* @__PURE__ */ ref("");
     const password = /* @__PURE__ */ ref("");
+    const username = /* @__PURE__ */ ref("");
     const error2 = /* @__PURE__ */ ref("");
     const doneMsg = /* @__PURE__ */ ref("");
     const logged = computed(() => !!(authUser.id || authUser.email));
@@ -25445,6 +25486,7 @@ const _sfc_main$2 = {
       mode.value = "login";
       email.value = "";
       password.value = "";
+      username.value = state.settings.shopName || "";
     });
     function close() {
       emit2("update:show", false);
@@ -25467,22 +25509,29 @@ const _sfc_main$2 = {
         error2.value = "密码至少 8 位";
         return;
       }
+      const nick = username.value.trim();
       try {
         if (mode.value === "register") {
-          const r = await registerEmail(mail, password.value);
+          const r = await registerEmail(mail, password.value, nick ? { nickname: nick } : {});
           if (r.needVerify) {
             doneMsg.value = "注册成功，请先去邮箱点验证链接，再回来登录";
             mode.value = "login";
             return;
           }
-          setAuthIdentity(r.user);
+          if (nick) setAuthDisplayName(nick);
+          setAuthIdentity(nick ? { ...r.user, name: nick } : r.user);
+          if (nick) setSetting("shopName", nick);
           tip("注册并登录成功：" + mail);
           close();
           return;
         }
         const u = await loginEmail(mail, password.value);
-        setAuthIdentity(u);
-        tip("已登录：" + (u.email || mail));
+        if (nick) {
+          setAuthDisplayName(nick);
+          setSetting("shopName", nick);
+        }
+        setAuthIdentity(nick ? { ...u, name: nick } : u);
+        tip("已登录：" + (u.email || mail) + (nick ? " · 店主昵称已同步为「" + nick + "」" : ""));
         close();
       } catch (e) {
         error2.value = authState.error || e && e.message || "操作失败，请重试";
@@ -25506,12 +25555,20 @@ const _sfc_main$2 = {
       return openBlock(), createBlock(_component_var_popup, {
         show: __props.show,
         position: "bottom",
-        "onUpdate:show": _cache[4] || (_cache[4] = (v) => emit2("update:show", v))
+        "onUpdate:show": _cache[5] || (_cache[5] = (v) => emit2("update:show", v))
       }, {
         default: withCtx(() => [
           createBaseVNode("div", _hoisted_1$2, [
             createBaseVNode("header", _hoisted_2$2, [
-              createBaseVNode("b", null, toDisplayString(logged.value ? "账号" : mode.value === "login" ? "邮箱登录" : "邮箱注册"), 1),
+              createBaseVNode("div", _hoisted_3$2, [
+                createBaseVNode("span", _hoisted_4$2, [
+                  createVNode(BrandMark, { size: 28 })
+                ]),
+                createBaseVNode("div", null, [
+                  createBaseVNode("b", null, toDisplayString(logged.value ? "我的账号" : mode.value === "login" ? "登录 83摊盈助手" : "创建账号"), 1),
+                  createBaseVNode("span", null, toDisplayString(logged.value ? "账号只做身份标识，不影响本机账本" : "登录后数据包会带上你的用户 ID"), 1)
+                ])
+              ]),
               createBaseVNode("button", {
                 class: "icon-btn",
                 "aria-label": "关闭",
@@ -25523,25 +25580,25 @@ const _sfc_main$2 = {
                 })
               ])
             ]),
-            createBaseVNode("div", _hoisted_3$2, [
+            createBaseVNode("div", _hoisted_5$2, [
               logged.value ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [
-                createBaseVNode("div", _hoisted_4$2, [
-                  createBaseVNode("div", _hoisted_5$2, [
+                createBaseVNode("div", _hoisted_6$2, [
+                  createBaseVNode("div", _hoisted_7$2, [
                     createVNode(_sfc_main$n, {
                       name: "user",
                       size: 26
                     })
                   ]),
-                  createBaseVNode("div", _hoisted_6$2, [
+                  createBaseVNode("div", _hoisted_8$2, [
                     createBaseVNode("b", null, toDisplayString(unref(authUser).name || unref(authUser).email), 1),
                     createBaseVNode("span", null, toDisplayString(unref(authUser).email), 1)
                   ])
                 ]),
-                createBaseVNode("div", _hoisted_7$2, [
-                  _cache[5] || (_cache[5] = createBaseVNode("span", null, "Authing 用户 ID", -1)),
-                  createBaseVNode("b", _hoisted_8$2, toDisplayString(unref(authUser).id), 1)
+                createBaseVNode("div", _hoisted_9$2, [
+                  _cache[6] || (_cache[6] = createBaseVNode("span", null, "Authing 用户 ID", -1)),
+                  createBaseVNode("b", _hoisted_10$2, toDisplayString(unref(authUser).id), 1)
                 ]),
-                _cache[6] || (_cache[6] = createBaseVNode("p", { class: "hint" }, '这个 ID 会随导出包 / 同步包一起流转，用来区分"这包是谁的"。本机账本不受账号影响，退出也不会删数据。', -1)),
+                _cache[7] || (_cache[7] = createBaseVNode("p", { class: "hint" }, '这个 ID 会随导出包 / 同步包一起流转，用来区分"这包是谁的"。本机账本不受账号影响，退出也不会删数据。', -1)),
                 createBaseVNode("div", { class: "acts" }, [
                   createBaseVNode("button", {
                     class: "btn block ghost",
@@ -25553,33 +25610,33 @@ const _sfc_main$2 = {
                   }, "继续开单")
                 ])
               ], 64)) : (openBlock(), createElementBlock(Fragment, { key: 1 }, [
-                createBaseVNode("div", _hoisted_9$2, [
+                createBaseVNode("div", _hoisted_11$2, [
                   createBaseVNode("button", {
                     class: "tab",
                     "data-on": mode.value === "login",
                     onClick: _cache[0] || (_cache[0] = ($event) => switchMode("login"))
-                  }, "登录", 8, _hoisted_10$2),
+                  }, "登录", 8, _hoisted_12$2),
                   createBaseVNode("button", {
                     class: "tab",
                     "data-on": mode.value === "register",
                     onClick: _cache[1] || (_cache[1] = ($event) => switchMode("register"))
-                  }, "注册", 8, _hoisted_11$2)
+                  }, "注册", 8, _hoisted_13$2)
                 ]),
-                error2.value || unref(authState).error ? (openBlock(), createElementBlock("div", _hoisted_12$2, [
+                error2.value || unref(authState).error ? (openBlock(), createElementBlock("div", _hoisted_14$2, [
                   createVNode(_sfc_main$n, {
                     name: "alert",
                     size: 16
                   }),
                   createTextVNode(toDisplayString(error2.value || unref(authState).error), 1)
                 ])) : createCommentVNode("", true),
-                doneMsg.value ? (openBlock(), createElementBlock("div", _hoisted_13$2, [
+                doneMsg.value ? (openBlock(), createElementBlock("div", _hoisted_15$2, [
                   createVNode(_sfc_main$n, {
                     name: "check",
                     size: 16
                   }),
                   createTextVNode(toDisplayString(doneMsg.value), 1)
                 ])) : createCommentVNode("", true),
-                _cache[7] || (_cache[7] = createBaseVNode("div", { class: "field-label" }, "邮箱", -1)),
+                _cache[8] || (_cache[8] = createBaseVNode("div", { class: "field-label" }, "邮箱", -1)),
                 withDirectives(createBaseVNode("input", {
                   "onUpdate:modelValue": _cache[2] || (_cache[2] = ($event) => email.value = $event),
                   class: "inp",
@@ -25589,7 +25646,7 @@ const _sfc_main$2 = {
                 }, null, 512), [
                   [vModelText, email.value]
                 ]),
-                _cache[8] || (_cache[8] = createBaseVNode("div", { class: "field-label" }, "密码", -1)),
+                _cache[9] || (_cache[9] = createBaseVNode("div", { class: "field-label" }, "密码", -1)),
                 withDirectives(createBaseVNode("input", {
                   "onUpdate:modelValue": _cache[3] || (_cache[3] = ($event) => password.value = $event),
                   class: "inp",
@@ -25597,8 +25654,20 @@ const _sfc_main$2 = {
                   autocomplete: mode.value === "register" ? "new-password" : "current-password",
                   placeholder: "至少 8 位",
                   onKeyup: withKeys(submit, ["enter"])
-                }, null, 40, _hoisted_14$2), [
+                }, null, 40, _hoisted_16$2), [
                   [vModelText, password.value]
+                ]),
+                _cache[10] || (_cache[10] = createBaseVNode("div", { class: "field-label" }, [
+                  createTextVNode("用户名 / 老板昵称 "),
+                  createBaseVNode("span", { class: "opt" }, "会同步到本机店主身份")
+                ], -1)),
+                withDirectives(createBaseVNode("input", {
+                  "onUpdate:modelValue": _cache[4] || (_cache[4] = ($event) => username.value = $event),
+                  class: "inp",
+                  maxlength: "20",
+                  placeholder: "例如「小李的摊」"
+                }, null, 512), [
+                  [vModelText, username.value]
                 ]),
                 createBaseVNode("button", {
                   class: "btn block jade",
@@ -25613,8 +25682,8 @@ const _sfc_main$2 = {
                     class: "spin"
                   })) : createCommentVNode("", true),
                   createTextVNode(" " + toDisplayString(busy.value ? "正在连接 Authing…" : mode.value === "login" ? "登录" : "注册并登录"), 1)
-                ], 8, _hoisted_15$2),
-                _cache[9] || (_cache[9] = createBaseVNode("p", {
+                ], 8, _hoisted_17$2),
+                _cache[11] || (_cache[11] = createBaseVNode("p", {
                   class: "hint",
                   style: { "margin-top": "12px" }
                 }, " 登录只用于身份标识和数据流转，不登录也能离线开单。注册后如果要求邮箱验证，先去邮箱点链接再回来登录。 ", -1))
@@ -25627,7 +25696,7 @@ const _sfc_main$2 = {
     };
   }
 };
-const LoginSheet = /* @__PURE__ */ _export_sfc(_sfc_main$2, [["__scopeId", "data-v-71358694"]]);
+const LoginSheet = /* @__PURE__ */ _export_sfc(_sfc_main$2, [["__scopeId", "data-v-46901c9b"]]);
 const _hoisted_1$1 = { class: "page me" };
 const _hoisted_2$1 = { class: "topbar" };
 const _hoisted_3$1 = { class: "sub" };
@@ -25831,144 +25900,143 @@ const _hoisted_107 = {
   key: 0,
   class: "empty"
 };
-const _hoisted_108 = {
-  key: 1,
-  class: "exp-form"
-};
-const _hoisted_109 = { class: "chips wrap" };
-const _hoisted_110 = ["data-on", "onClick"];
-const _hoisted_111 = { class: "chips wrap" };
-const _hoisted_112 = ["data-on", "onClick"];
-const _hoisted_113 = { class: "date-row" };
-const _hoisted_114 = { key: 0 };
-const _hoisted_115 = { class: "exp-hint" };
-const _hoisted_116 = { class: "exp-actions" };
-const _hoisted_117 = { class: "fh-l" };
-const _hoisted_118 = { class: "fh-r" };
-const _hoisted_119 = {
+const _hoisted_108 = { class: "fh-l" };
+const _hoisted_109 = { class: "fh-r" };
+const _hoisted_110 = {
   key: 0,
   class: "fold-body"
 };
-const _hoisted_120 = { class: "chips" };
-const _hoisted_121 = ["data-on", "onClick"];
-const _hoisted_122 = {
+const _hoisted_111 = { class: "chips" };
+const _hoisted_112 = ["data-on", "onClick"];
+const _hoisted_113 = {
   class: "kv-row",
   style: { "margin-top": "8px" }
 };
-const _hoisted_123 = {
+const _hoisted_114 = {
   class: "kv-row",
   style: { "margin-top": "8px" }
 };
-const _hoisted_124 = {
+const _hoisted_115 = {
   key: 0,
   class: "chips",
   style: { "margin-top": "8px" }
 };
-const _hoisted_125 = {
+const _hoisted_116 = {
   class: "hint",
   style: { "margin-top": "4px" }
 };
-const _hoisted_126 = { class: "chips" };
-const _hoisted_127 = ["data-on", "onClick"];
-const _hoisted_128 = { class: "fh-l" };
-const _hoisted_129 = { class: "fh-r" };
-const _hoisted_130 = {
+const _hoisted_117 = { class: "chips" };
+const _hoisted_118 = ["data-on", "onClick"];
+const _hoisted_119 = { class: "fh-l" };
+const _hoisted_120 = { class: "fh-r" };
+const _hoisted_121 = {
   key: 0,
   class: "fold-body"
 };
-const _hoisted_131 = { class: "kv-row" };
-const _hoisted_132 = { class: "kv-row" };
-const _hoisted_133 = {
+const _hoisted_122 = { class: "kv-row" };
+const _hoisted_123 = { class: "kv-row" };
+const _hoisted_124 = {
   class: "hint",
   style: { "margin-left": "4px" }
 };
-const _hoisted_134 = { class: "kv-row" };
-const _hoisted_135 = {
+const _hoisted_125 = { class: "kv-row" };
+const _hoisted_126 = {
   class: "hint",
   style: { "margin-left": "4px" }
 };
-const _hoisted_136 = { class: "kv-row" };
-const _hoisted_137 = { class: "mono" };
-const _hoisted_138 = {
+const _hoisted_127 = { class: "kv-row" };
+const _hoisted_128 = { class: "mono" };
+const _hoisted_129 = {
   class: "kv-row",
   style: { "border-bottom": "0" }
 };
-const _hoisted_139 = {
+const _hoisted_130 = {
   key: 0,
   class: "hint",
   style: { "color": "var(--clay)", "margin-top": "6px" }
 };
-const _hoisted_140 = {
+const _hoisted_131 = {
   class: "chips",
   style: { "margin-top": "10px" }
 };
-const _hoisted_141 = { class: "chips" };
-const _hoisted_142 = ["onClick"];
-const _hoisted_143 = { class: "lt" };
-const _hoisted_144 = { class: "lb" };
-const _hoisted_145 = { class: "lx" };
-const _hoisted_146 = { class: "lwho" };
-const _hoisted_147 = {
+const _hoisted_132 = { class: "chips" };
+const _hoisted_133 = ["onClick"];
+const _hoisted_134 = { class: "lt" };
+const _hoisted_135 = { class: "lb" };
+const _hoisted_136 = { class: "lx" };
+const _hoisted_137 = { class: "lwho" };
+const _hoisted_138 = {
   key: 1,
   class: "hint",
   style: { "padding": "10px 0" }
 };
-const _hoisted_148 = {
+const _hoisted_139 = {
   class: "card",
   style: { "margin-top": "10px", "padding": "2px 12px" }
 };
-const _hoisted_149 = { class: "fh-l" };
-const _hoisted_150 = { class: "fh-r" };
-const _hoisted_151 = { class: "fh-l" };
-const _hoisted_152 = { class: "fh-r" };
-const _hoisted_153 = {
+const _hoisted_140 = { class: "fh-l" };
+const _hoisted_141 = { class: "fh-r" };
+const _hoisted_142 = { class: "fh-l" };
+const _hoisted_143 = { class: "fh-r" };
+const _hoisted_144 = {
   key: 0,
   class: "fold-body"
 };
-const _hoisted_154 = { class: "sheet" };
-const _hoisted_155 = { class: "sheet-head" };
-const _hoisted_156 = { class: "hint" };
-const _hoisted_157 = { class: "sheet-body" };
-const _hoisted_158 = ["onClick"];
-const _hoisted_159 = { class: "lt" };
-const _hoisted_160 = { class: "lb" };
-const _hoisted_161 = { class: "lx" };
-const _hoisted_162 = { class: "lwho" };
-const _hoisted_163 = {
+const _hoisted_145 = { class: "sheet" };
+const _hoisted_146 = { class: "sheet-head" };
+const _hoisted_147 = { class: "hint" };
+const _hoisted_148 = { class: "sheet-body" };
+const _hoisted_149 = ["onClick"];
+const _hoisted_150 = { class: "lt" };
+const _hoisted_151 = { class: "lb" };
+const _hoisted_152 = { class: "lx" };
+const _hoisted_153 = { class: "lwho" };
+const _hoisted_154 = {
   key: 0,
   class: "empty"
 };
-const _hoisted_164 = { class: "lm-main" };
-const _hoisted_165 = { class: "sheet avatar-sheet" };
-const _hoisted_166 = { class: "sheet-head" };
-const _hoisted_167 = { class: "sheet-body" };
-const _hoisted_168 = { class: "avatar-preview" };
-const _hoisted_169 = ["src"];
-const _hoisted_170 = {
+const _hoisted_155 = { class: "lm-main" };
+const _hoisted_156 = { class: "sheet avatar-sheet" };
+const _hoisted_157 = { class: "sheet-head" };
+const _hoisted_158 = { class: "sheet-body" };
+const _hoisted_159 = { class: "avatar-preview" };
+const _hoisted_160 = ["src"];
+const _hoisted_161 = {
   class: "q-btn jade",
   style: { "width": "100%", "margin-top": "12px", "cursor": "pointer" }
 };
-const _hoisted_171 = {
+const _hoisted_162 = {
   class: "row-2",
   style: { "display": "grid", "grid-template-columns": "1fr auto", "gap": "8px" }
 };
-const _hoisted_172 = { class: "menu-sheet" };
-const _hoisted_173 = { class: "menu-head" };
-const _hoisted_174 = { class: "hint" };
-const _hoisted_175 = ["onClick"];
-const _hoisted_176 = { class: "menu-txt" };
-const _hoisted_177 = {
+const _hoisted_163 = { class: "menu-sheet" };
+const _hoisted_164 = { class: "menu-head" };
+const _hoisted_165 = { class: "hint" };
+const _hoisted_166 = ["onClick"];
+const _hoisted_167 = { class: "menu-txt" };
+const _hoisted_168 = { class: "sheet exp-sheet" };
+const _hoisted_169 = { class: "sheet-head" };
+const _hoisted_170 = { class: "sheet-body" };
+const _hoisted_171 = { class: "chips wrap" };
+const _hoisted_172 = ["data-on", "onClick"];
+const _hoisted_173 = { class: "chips wrap" };
+const _hoisted_174 = ["data-on", "onClick"];
+const _hoisted_175 = { class: "date-row" };
+const _hoisted_176 = { key: 0 };
+const _hoisted_177 = { class: "exp-hint" };
+const _hoisted_178 = { class: "sheet-foot" };
+const _hoisted_179 = {
   key: 0,
   class: "busy-mask",
   role: "status",
   "aria-live": "assertive"
 };
-const _hoisted_178 = { class: "busy-card" };
-const _hoisted_179 = { class: "busy-logo" };
-const _hoisted_180 = { class: "busy-title" };
-const _hoisted_181 = { class: "busy-text" };
-const _hoisted_182 = { class: "busy-bar" };
-const _hoisted_183 = { class: "busy-hint" };
+const _hoisted_180 = { class: "busy-card" };
+const _hoisted_181 = { class: "busy-logo" };
+const _hoisted_182 = { class: "busy-title" };
+const _hoisted_183 = { class: "busy-text" };
+const _hoisted_184 = { class: "busy-bar" };
+const _hoisted_185 = { class: "busy-hint" };
 const _sfc_main$1 = {
   __name: "MeView",
   setup(__props) {
@@ -26722,7 +26790,7 @@ const _sfc_main$1 = {
       return openBlock(), createElementBlock("div", _hoisted_1$1, [
         createBaseVNode("div", _hoisted_2$1, [
           createBaseVNode("div", null, [
-            _cache[39] || (_cache[39] = createBaseVNode("div", { class: "title" }, "我的", -1)),
+            _cache[41] || (_cache[41] = createBaseVNode("div", { class: "title" }, "我的", -1)),
             createBaseVNode("div", _hoisted_3$1, toDisplayString(unref(isAgent) ? "代理 · " + (unref(agentProfile) ? unref(agentProfile).name : "") : "店主"), 1)
           ]),
           createBaseVNode("button", {
@@ -26787,15 +26855,15 @@ const _sfc_main$1 = {
           createBaseVNode("div", _hoisted_16$1, [
             createBaseVNode("span", null, [
               createBaseVNode("b", null, toDisplayString(unref(state).collections.products.length), 1),
-              _cache[40] || (_cache[40] = createTextVNode(" 商品", -1))
+              _cache[42] || (_cache[42] = createTextVNode(" 商品", -1))
             ]),
             createBaseVNode("span", null, [
               createBaseVNode("b", null, toDisplayString(unref(state).collections.orders.length), 1),
-              _cache[41] || (_cache[41] = createTextVNode(" 订单", -1))
+              _cache[43] || (_cache[43] = createTextVNode(" 订单", -1))
             ]),
             createBaseVNode("span", null, [
               createBaseVNode("b", null, toDisplayString(unref(stores).length), 1),
-              _cache[42] || (_cache[42] = createTextVNode(" 家店", -1))
+              _cache[44] || (_cache[44] = createTextVNode(" 家店", -1))
             ]),
             createBaseVNode("span", _hoisted_17$1, toDisplayString(deviceId.value), 1)
           ])
@@ -26806,7 +26874,7 @@ const _sfc_main$1 = {
             word: "",
             tagline: "八收三扣，盈利有数"
           }),
-          _cache[43] || (_cache[43] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.9", -1))
+          _cache[45] || (_cache[45] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.9", -1))
         ]),
         createBaseVNode("div", _hoisted_19$1, [
           createBaseVNode("button", {
@@ -26816,7 +26884,7 @@ const _sfc_main$1 = {
               name: "shop",
               size: 20
             }),
-            _cache[44] || (_cache[44] = createBaseVNode("b", null, "切换店铺", -1)),
+            _cache[46] || (_cache[46] = createBaseVNode("b", null, "切换店铺", -1)),
             createBaseVNode("small", null, toDisplayString(store.value ? store.value.name : "未选"), 1)
           ]),
           unref(allow)("store:write") ? (openBlock(), createElementBlock("button", {
@@ -26827,7 +26895,7 @@ const _sfc_main$1 = {
               name: "user",
               size: 20
             }),
-            _cache[45] || (_cache[45] = createBaseVNode("b", null, "代理管理", -1)),
+            _cache[47] || (_cache[47] = createBaseVNode("b", null, "代理管理", -1)),
             createBaseVNode("small", null, toDisplayString(store.value ? store.value.name : ""), 1)
           ])) : createCommentVNode("", true),
           unref(isAgent) ? (openBlock(), createElementBlock("button", {
@@ -26838,8 +26906,8 @@ const _sfc_main$1 = {
               name: "upload",
               size: 20
             }),
-            _cache[46] || (_cache[46] = createBaseVNode("b", null, "交给店主", -1)),
-            _cache[47] || (_cache[47] = createBaseVNode("small", null, "我的订单/流水", -1))
+            _cache[48] || (_cache[48] = createBaseVNode("b", null, "交给店主", -1)),
+            _cache[49] || (_cache[49] = createBaseVNode("small", null, "我的订单/流水", -1))
           ])) : (openBlock(), createElementBlock("button", {
             key: 2,
             onClick: doExportStore
@@ -26848,8 +26916,8 @@ const _sfc_main$1 = {
               name: "download",
               size: 20
             }),
-            _cache[48] || (_cache[48] = createBaseVNode("b", null, "导出全店", -1)),
-            _cache[49] || (_cache[49] = createBaseVNode("small", null, "商品/库存/订单…", -1))
+            _cache[50] || (_cache[50] = createBaseVNode("b", null, "导出全店", -1)),
+            _cache[51] || (_cache[51] = createBaseVNode("small", null, "商品/库存/订单…", -1))
           ])),
           createBaseVNode("label", _hoisted_20$1, [
             createBaseVNode("input", {
@@ -26863,7 +26931,7 @@ const _sfc_main$1 = {
               size: 20
             }),
             createBaseVNode("b", null, toDisplayString(importing.value ? "接入中…" : "导入数据包"), 1),
-            _cache[50] || (_cache[50] = createBaseVNode("small", null, "店铺 / 代理包", -1))
+            _cache[52] || (_cache[52] = createBaseVNode("small", null, "店铺 / 代理包", -1))
           ])
         ]),
         createBaseVNode("div", {
@@ -26878,7 +26946,7 @@ const _sfc_main$1 = {
                 name: "shop",
                 size: 17
               }),
-              _cache[51] || (_cache[51] = createBaseVNode("b", null, "店铺与身份", -1))
+              _cache[53] || (_cache[53] = createBaseVNode("b", null, "店铺与身份", -1))
             ]),
             createBaseVNode("span", _hoisted_22$1, [
               createBaseVNode("span", null, toDisplayString(unref(stores).length) + " 家店 · " + toDisplayString(unref(identities).length) + " 个身份", 1),
@@ -26890,7 +26958,7 @@ const _sfc_main$1 = {
             ])
           ]),
           sec.value.stores ? (openBlock(), createElementBlock("div", _hoisted_23$1, [
-            _cache[53] || (_cache[53] = createBaseVNode("div", { class: "mini-head" }, "店铺", -1)),
+            _cache[55] || (_cache[55] = createBaseVNode("div", { class: "mini-head" }, "店铺", -1)),
             (openBlock(true), createElementBlock(Fragment, null, renderList(unref(allow)("store:write") ? unref(stores) : unref(stores).filter((x) => store.value && x.id === store.value.id), (s) => {
               return openBlock(), createElementBlock("button", {
                 key: s.id,
@@ -26944,13 +27012,13 @@ const _sfc_main$1 = {
                 type: "primary",
                 onClick: addStore
               }, {
-                default: withCtx(() => [..._cache[52] || (_cache[52] = [
+                default: withCtx(() => [..._cache[54] || (_cache[54] = [
                   createTextVNode("建店", -1)
                 ])]),
                 _: 1
               })
             ])) : createCommentVNode("", true),
-            _cache[54] || (_cache[54] = createBaseVNode("div", {
+            _cache[56] || (_cache[56] = createBaseVNode("div", {
               class: "mini-head",
               style: { "margin-top": "16px" }
             }, "身份（店主 / 代理，随时切）", -1)),
@@ -26985,7 +27053,7 @@ const _sfc_main$1 = {
                 ])
               ]);
             }), 128)),
-            _cache[55] || (_cache[55] = createBaseVNode("div", {
+            _cache[57] || (_cache[57] = createBaseVNode("div", {
               class: "hint",
               style: { "padding": "8px 0 2px", "line-height": "1.8" }
             }, " 代理身份看不到成本与毛利，商品/分类/库存只读；两个身份用的是同一份数据，切换不重新加载。 ", -1))
@@ -27003,7 +27071,7 @@ const _sfc_main$1 = {
                 name: "sync",
                 size: 17
               }),
-              _cache[56] || (_cache[56] = createBaseVNode("b", null, "数据同步与备份", -1))
+              _cache[58] || (_cache[58] = createBaseVNode("b", null, "数据同步与备份", -1))
             ]),
             createBaseVNode("span", _hoisted_43, [
               createBaseVNode("span", null, toDisplayString(lastSyncText.value), 1),
@@ -27020,9 +27088,9 @@ const _sfc_main$1 = {
                 name: "alert",
                 size: 16
               }),
-              _cache[57] || (_cache[57] = createBaseVNode("span", null, "微信里点不动下载。请点右上角「···」→「在浏览器打开」，再在这里导出/导入。", -1))
+              _cache[59] || (_cache[59] = createBaseVNode("span", null, "微信里点不动下载。请点右上角「···」→「在浏览器打开」，再在这里导出/导入。", -1))
             ])) : createCommentVNode("", true),
-            _cache[69] || (_cache[69] = createBaseVNode("div", { class: "mini-head" }, "手机 ↔ 电脑（同一个用户，整包覆盖）", -1)),
+            _cache[71] || (_cache[71] = createBaseVNode("div", { class: "mini-head" }, "手机 ↔ 电脑（同一个用户，整包覆盖）", -1)),
             createBaseVNode("button", {
               class: "row",
               onClick: doExportSync
@@ -27033,7 +27101,7 @@ const _sfc_main$1 = {
                   size: 18
                 })
               ]),
-              _cache[58] || (_cache[58] = createBaseVNode("span", { class: "txt" }, [
+              _cache[60] || (_cache[60] = createBaseVNode("span", { class: "txt" }, [
                 createBaseVNode("b", null, "导出同步包"),
                 createBaseVNode("span", null, "带设置；拿到另一台导入 = 那台变成本机这一份")
               ], -1))
@@ -27053,14 +27121,14 @@ const _sfc_main$1 = {
               ]),
               createBaseVNode("span", _hoisted_49, [
                 createBaseVNode("b", null, toDisplayString(syncing.value ? "正在覆盖…" : "导入同步包（整套覆盖）"), 1),
-                _cache[59] || (_cache[59] = createBaseVNode("span", null, "本机全部换成本包里那份，导入前二次确认", -1))
+                _cache[61] || (_cache[61] = createBaseVNode("span", null, "本机全部换成本包里那份，导入前二次确认", -1))
               ])
             ]),
             createBaseVNode("div", _hoisted_50, [
-              _cache[61] || (_cache[61] = createTextVNode("本机：", -1)),
+              _cache[63] || (_cache[63] = createTextVNode("本机：", -1)),
               createBaseVNode("span", _hoisted_51, toDisplayString(deviceId.value), 1),
               unref(authUser).email ? (openBlock(), createElementBlock("span", _hoisted_52, [
-                _cache[60] || (_cache[60] = createTextVNode(" · 账号：", -1)),
+                _cache[62] || (_cache[62] = createTextVNode(" · 账号：", -1)),
                 createBaseVNode("span", _hoisted_53, toDisplayString(unref(authUser).email), 1)
               ])) : createCommentVNode("", true),
               createTextVNode(" · 上次同步：" + toDisplayString(lastSyncText.value), 1),
@@ -27077,7 +27145,7 @@ const _sfc_main$1 = {
                   size: 18
                 })
               ]),
-              _cache[62] || (_cache[62] = createBaseVNode("span", { class: "txt" }, [
+              _cache[64] || (_cache[64] = createBaseVNode("span", { class: "txt" }, [
                 createBaseVNode("b", null, "导出这家店"),
                 createBaseVNode("span", null, "店 + 挂载仓库 + 商品/库存/订单/挂单/本店日志；不含头像主题")
               ], -1))
@@ -27097,10 +27165,10 @@ const _sfc_main$1 = {
               ]),
               createBaseVNode("span", _hoisted_59, [
                 createBaseVNode("b", null, toDisplayString(importing.value ? "正在接入…" : "导入店铺数据包"), 1),
-                _cache[63] || (_cache[63] = createBaseVNode("span", null, "本机已有 → 更新；没有 → 建一家共管店挂进来（代理包也行）", -1))
+                _cache[65] || (_cache[65] = createBaseVNode("span", null, "本机已有 → 更新；没有 → 建一家共管店挂进来（代理包也行）", -1))
               ])
             ]),
-            _cache[70] || (_cache[70] = createBaseVNode("div", { class: "mini-head" }, "全部数据（备份 / 合并）", -1)),
+            _cache[72] || (_cache[72] = createBaseVNode("div", { class: "mini-head" }, "全部数据（备份 / 合并）", -1)),
             createBaseVNode("button", {
               class: "row",
               onClick: doExport
@@ -27111,7 +27179,7 @@ const _sfc_main$1 = {
                   size: 18
                 })
               ]),
-              _cache[64] || (_cache[64] = createBaseVNode("span", { class: "txt" }, [
+              _cache[66] || (_cache[66] = createBaseVNode("span", { class: "txt" }, [
                 createBaseVNode("b", null, "导出全部数据"),
                 createBaseVNode("span", null, "所有店铺 + 头像/主题等设置，换机或误删前先存一份")
               ], -1))
@@ -27131,11 +27199,11 @@ const _sfc_main$1 = {
               ]),
               createBaseVNode("span", _hoisted_63, [
                 createBaseVNode("b", null, toDisplayString(importing.value ? "正在合并…" : "导入并合并（不覆盖）"), 1),
-                _cache[65] || (_cache[65] = createBaseVNode("span", null, "同 id 取更新的一条，本机独有的留着 —— 和同步包正好相反", -1))
+                _cache[67] || (_cache[67] = createBaseVNode("span", null, "同 id 取更新的一条，本机独有的留着 —— 和同步包正好相反", -1))
               ])
             ]),
-            _cache[71] || (_cache[71] = createBaseVNode("div", { class: "mini-head" }, "存储体检", -1)),
-            _cache[72] || (_cache[72] = createBaseVNode("div", {
+            _cache[73] || (_cache[73] = createBaseVNode("div", { class: "mini-head" }, "存储体检", -1)),
+            _cache[74] || (_cache[74] = createBaseVNode("div", {
               class: "hint",
               style: { "margin": "0 0 6px" }
             }, [
@@ -27195,7 +27263,7 @@ const _sfc_main$1 = {
                   size: 18
                 })
               ]),
-              _cache[66] || (_cache[66] = createBaseVNode("span", { class: "txt" }, [
+              _cache[68] || (_cache[68] = createBaseVNode("span", { class: "txt" }, [
                 createBaseVNode("b", null, "压缩数据（图片）"),
                 createBaseVNode("span", null, "商品图超过 60KB 重压到 320px；重复的库存行合并。日志和库存流水属追溯依据，一律不动")
               ], -1))
@@ -27211,7 +27279,7 @@ const _sfc_main$1 = {
                   size: 18
                 })
               ]),
-              _cache[67] || (_cache[67] = createBaseVNode("span", { class: "txt" }, [
+              _cache[69] || (_cache[69] = createBaseVNode("span", { class: "txt" }, [
                 createBaseVNode("b", null, "重建当前库（缩回真实体积）"),
                 createBaseVNode("span", null, "搬进新库 + 校验通过才切换 + 旧库自动删除；旧库全程不动，中断也不丢数据")
               ], -1))
@@ -27229,7 +27297,7 @@ const _sfc_main$1 = {
               ]),
               createBaseVNode("span", _hoisted_79, [
                 createBaseVNode("b", _hoisted_80, "清理 " + toDisplayString(staleDbs.value.length) + " 个旧库", 1),
-                _cache[68] || (_cache[68] = createBaseVNode("span", null, "只删历史配置档留下的库，当前库一律保留", -1))
+                _cache[70] || (_cache[70] = createBaseVNode("span", null, "只删历史配置档留下的库，当前库一律保留", -1))
               ])
             ])) : createCommentVNode("", true),
             report.value ? (openBlock(), createElementBlock("div", _hoisted_81, [
@@ -27239,7 +27307,7 @@ const _sfc_main$1 = {
               }),
               createTextVNode(toDisplayString(report.value), 1)
             ])) : createCommentVNode("", true),
-            _cache[73] || (_cache[73] = createBaseVNode("div", {
+            _cache[75] || (_cache[75] = createBaseVNode("div", {
               class: "hint",
               style: { "padding": "10px 2px 0", "line-height": "1.9" }
             }, [
@@ -27260,7 +27328,7 @@ const _sfc_main$1 = {
           }, [
             createBaseVNode("span", _hoisted_82, [
               createVNode(BrandMark, { size: 18 }),
-              _cache[74] || (_cache[74] = createBaseVNode("b", null, "收银台", -1))
+              _cache[76] || (_cache[76] = createBaseVNode("b", null, "收银台", -1))
             ]),
             createBaseVNode("span", _hoisted_83, [
               createBaseVNode("span", null, "折扣 " + toDisplayString(unref(state).settings.minDiscount) + "折起", 1),
@@ -27273,7 +27341,7 @@ const _sfc_main$1 = {
           ]),
           sec.value.cash ? (openBlock(), createElementBlock("div", _hoisted_84, [
             createBaseVNode("div", _hoisted_85, [
-              _cache[75] || (_cache[75] = createBaseVNode("span", null, [
+              _cache[77] || (_cache[77] = createBaseVNode("span", null, [
                 createTextVNode("显示成本/毛利"),
                 createBaseVNode("small", { class: "hint" }, "代理永远不显示")
               ], -1)),
@@ -27284,7 +27352,7 @@ const _sfc_main$1 = {
               }, null, 8, ["model-value"])
             ]),
             createBaseVNode("div", _hoisted_86, [
-              _cache[76] || (_cache[76] = createBaseVNode("span", null, [
+              _cache[78] || (_cache[78] = createBaseVNode("span", null, [
                 createTextVNode("收款后语音播报"),
                 createBaseVNode("small", { class: "hint" }, "金额/找零")
               ], -1)),
@@ -27295,7 +27363,7 @@ const _sfc_main$1 = {
               }, null, 8, ["model-value"])
             ]),
             createBaseVNode("div", _hoisted_87, [
-              _cache[77] || (_cache[77] = createBaseVNode("span", null, [
+              _cache[79] || (_cache[79] = createBaseVNode("span", null, [
                 createTextVNode("显示微信/支付宝二维码"),
                 createBaseVNode("small", { class: "hint" }, "收款码没填就不显示")
               ], -1)),
@@ -27305,7 +27373,7 @@ const _sfc_main$1 = {
                 "onUpdate:modelValue": _cache[10] || (_cache[10] = (v) => unref(setSetting)("showQR", !!v))
               }, null, 8, ["model-value"])
             ]),
-            _cache[80] || (_cache[80] = createBaseVNode("div", {
+            _cache[82] || (_cache[82] = createBaseVNode("div", {
               class: "field-label",
               style: { "margin-top": "10px" }
             }, "最低折扣（店主定，低于此不给折）", -1)),
@@ -27319,11 +27387,11 @@ const _sfc_main$1 = {
                 }, toDisplayString(d) + "折起", 9, _hoisted_89);
               }), 64))
             ]),
-            _cache[81] || (_cache[81] = createBaseVNode("div", {
+            _cache[83] || (_cache[83] = createBaseVNode("div", {
               class: "hint",
               style: { "margin-top": "6px" }
             }, "这只管「最多能打多低」；真正开单时还会看这批货的成本，成本顶到卖价就不给折。", -1)),
-            _cache[82] || (_cache[82] = createBaseVNode("div", {
+            _cache[84] || (_cache[84] = createBaseVNode("div", {
               class: "field-label",
               style: { "margin-top": "14px" }
             }, "微信收款码链接", -1)),
@@ -27333,7 +27401,7 @@ const _sfc_main$1 = {
               placeholder: "https://…/wechat-qr.jpg",
               onChange: _cache[11] || (_cache[11] = (e) => unref(setSetting)("wechatQR", e.target.value.trim()))
             }, null, 40, _hoisted_90),
-            _cache[83] || (_cache[83] = createBaseVNode("div", {
+            _cache[85] || (_cache[85] = createBaseVNode("div", {
               class: "field-label",
               style: { "margin-top": "10px" }
             }, "支付宝收款码链接", -1)),
@@ -27343,11 +27411,11 @@ const _sfc_main$1 = {
               placeholder: "https://…/alipay-qr.jpg",
               onChange: _cache[12] || (_cache[12] = (e) => unref(setSetting)("alipayQR", e.target.value.trim()))
             }, null, 40, _hoisted_91),
-            _cache[84] || (_cache[84] = createBaseVNode("div", {
+            _cache[86] || (_cache[86] = createBaseVNode("div", {
               class: "hint",
               style: { "margin-top": "8px" }
             }, "上面是「你本人」的通用收款码，所有自己的店默认用它；代理端只能看不能改。", -1)),
-            !unref(isAgent) ? (openBlock(), createElementBlock("div", _hoisted_92, [..._cache[78] || (_cache[78] = [
+            !unref(isAgent) ? (openBlock(), createElementBlock("div", _hoisted_92, [..._cache[80] || (_cache[80] = [
               createTextVNode("本店专用微信收款码", -1),
               createBaseVNode("small", { class: "hint" }, "不填就用上面的通用码", -1)
             ])])) : createCommentVNode("", true),
@@ -27358,7 +27426,7 @@ const _sfc_main$1 = {
               placeholder: "留空 = 跟随上面的通用码",
               onChange: _cache[13] || (_cache[13] = (e) => unref(setStorePayQR)("wechat", e.target.value))
             }, null, 40, _hoisted_93)) : createCommentVNode("", true),
-            !unref(isAgent) ? (openBlock(), createElementBlock("div", _hoisted_94, [..._cache[79] || (_cache[79] = [
+            !unref(isAgent) ? (openBlock(), createElementBlock("div", _hoisted_94, [..._cache[81] || (_cache[81] = [
               createTextVNode("本店专用支付宝收款码", -1),
               createBaseVNode("small", { class: "hint" }, "不填就用上面的通用码", -1)
             ])])) : createCommentVNode("", true),
@@ -27384,7 +27452,7 @@ const _sfc_main$1 = {
                 name: "chart",
                 size: 17
               }),
-              _cache[85] || (_cache[85] = createBaseVNode("b", null, "杂费与摊位费", -1))
+              _cache[87] || (_cache[87] = createBaseVNode("b", null, "杂费与摊位费", -1))
             ]),
             createBaseVNode("span", _hoisted_98, [
               createBaseVNode("span", null, toDisplayString(unref(expenses).length) + " 笔 · 本月摊 " + toDisplayString(unref(money)(costMonth.value)), 1),
@@ -27396,7 +27464,7 @@ const _sfc_main$1 = {
             ])
           ]),
           sec.value.cost ? (openBlock(), createElementBlock("div", _hoisted_99, [
-            _cache[92] || (_cache[92] = createBaseVNode("div", {
+            _cache[90] || (_cache[90] = createBaseVNode("div", {
               class: "hint",
               style: { "line-height": "1.8", "padding": "6px 0 2px" }
             }, [
@@ -27447,7 +27515,7 @@ const _sfc_main$1 = {
                 ])
               ]);
             }), 128)),
-            !unref(expenses).length ? (openBlock(), createElementBlock("div", _hoisted_107, [..._cache[86] || (_cache[86] = [
+            !unref(expenses).length ? (openBlock(), createElementBlock("div", _hoisted_107, [..._cache[88] || (_cache[88] = [
               createBaseVNode("b", null, "还没记过杂费", -1),
               createTextVNode("摊位费按天摊进去，净利才准", -1)
             ])])) : createCommentVNode("", true),
@@ -27461,98 +27529,8 @@ const _sfc_main$1 = {
                 size: 16,
                 style: { "margin-right": "6px" }
               }),
-              _cache[87] || (_cache[87] = createTextVNode("记一笔杂费 ", -1))
-            ]),
-            expOpen.value ? (openBlock(), createElementBlock("div", _hoisted_108, [
-              _cache[89] || (_cache[89] = createBaseVNode("div", { class: "field-label" }, "类型", -1)),
-              createBaseVNode("div", _hoisted_109, [
-                (openBlock(true), createElementBlock(Fragment, null, renderList(unref(EXPENSE_KINDS), (k) => {
-                  return openBlock(), createElementBlock("button", {
-                    key: k.key,
-                    class: "chip",
-                    "data-on": expForm.value.kind === k.key,
-                    onClick: ($event) => expForm.value.kind = k.key
-                  }, toDisplayString(k.name), 9, _hoisted_110);
-                }), 128))
-              ]),
-              withDirectives(createBaseVNode("input", {
-                class: "inp",
-                style: { "margin-top": "10px" },
-                "onUpdate:modelValue": _cache[16] || (_cache[16] = ($event) => expForm.value.name = $event),
-                placeholder: "备注名，例如「8 月摊位费」",
-                maxlength: "40"
-              }, null, 512), [
-                [vModelText, expForm.value.name]
-              ]),
-              _cache[90] || (_cache[90] = createBaseVNode("div", {
-                class: "field-label",
-                style: { "margin-top": "10px" }
-              }, "金额", -1)),
-              withDirectives(createBaseVNode("input", {
-                class: "inp tnum",
-                "onUpdate:modelValue": _cache[17] || (_cache[17] = ($event) => expForm.value.amount = $event),
-                inputmode: "decimal",
-                placeholder: "0.00"
-              }, null, 512), [
-                [vModelText, expForm.value.amount]
-              ]),
-              _cache[91] || (_cache[91] = createBaseVNode("div", {
-                class: "field-label",
-                style: { "margin-top": "10px" }
-              }, "怎么算", -1)),
-              createBaseVNode("div", _hoisted_111, [
-                (openBlock(true), createElementBlock(Fragment, null, renderList(unref(EXPENSE_MODES), (m) => {
-                  return openBlock(), createElementBlock("button", {
-                    key: m.key,
-                    class: "chip",
-                    "data-on": expForm.value.mode === m.key,
-                    onClick: ($event) => expForm.value.mode = m.key
-                  }, toDisplayString(m.name), 9, _hoisted_112);
-                }), 128))
-              ]),
-              createBaseVNode("div", _hoisted_113, [
-                createBaseVNode("label", null, [
-                  createBaseVNode("span", null, toDisplayString(expForm.value.mode === "once" ? "发生日期" : "开始"), 1),
-                  withDirectives(createBaseVNode("input", {
-                    class: "inp",
-                    type: "date",
-                    "onUpdate:modelValue": _cache[18] || (_cache[18] = ($event) => expForm.value.from = $event)
-                  }, null, 512), [
-                    [vModelText, expForm.value.from]
-                  ])
-                ]),
-                expForm.value.mode !== "once" ? (openBlock(), createElementBlock("label", _hoisted_114, [
-                  _cache[88] || (_cache[88] = createBaseVNode("span", null, "结束", -1)),
-                  withDirectives(createBaseVNode("input", {
-                    class: "inp",
-                    type: "date",
-                    "onUpdate:modelValue": _cache[19] || (_cache[19] = ($event) => expForm.value.to = $event)
-                  }, null, 512), [
-                    [vModelText, expForm.value.to]
-                  ])
-                ])) : createCommentVNode("", true)
-              ]),
-              withDirectives(createBaseVNode("input", {
-                class: "inp",
-                style: { "margin-top": "10px" },
-                "onUpdate:modelValue": _cache[20] || (_cache[20] = ($event) => expForm.value.note = $event),
-                placeholder: "备注（选填）",
-                maxlength: "80"
-              }, null, 512), [
-                [vModelText, expForm.value.note]
-              ]),
-              createBaseVNode("div", _hoisted_115, toDisplayString(expHint.value), 1),
-              createBaseVNode("div", _hoisted_116, [
-                createBaseVNode("button", {
-                  class: "btn ghost",
-                  onClick: _cache[21] || (_cache[21] = ($event) => expOpen.value = false)
-                }, "取消"),
-                createBaseVNode("button", {
-                  class: "btn",
-                  onClick: submitExpense
-                }, toDisplayString(expEditId.value ? "保存修改" : "记下这笔"), 1)
-              ])
-            ])) : createCommentVNode("", true)
+              _cache[89] || (_cache[89] = createTextVNode("记一笔杂费 ", -1))
+            ])
           ])) : createCommentVNode("", true)
         ], 2),
         createBaseVNode("div", {
@@ -27560,16 +27538,16 @@ const _sfc_main$1 = {
         }, [
           createBaseVNode("button", {
             class: "fold-head",
-            onClick: _cache[22] || (_cache[22] = ($event) => toggle("look"))
+            onClick: _cache[16] || (_cache[16] = ($event) => toggle("look"))
           }, [
-            createBaseVNode("span", _hoisted_117, [
+            createBaseVNode("span", _hoisted_108, [
               createVNode(_sfc_main$n, {
                 name: "theme",
                 size: 17
               }),
-              _cache[93] || (_cache[93] = createBaseVNode("b", null, "外观", -1))
+              _cache[91] || (_cache[91] = createBaseVNode("b", null, "外观", -1))
             ]),
-            createBaseVNode("span", _hoisted_118, [
+            createBaseVNode("span", _hoisted_109, [
               createBaseVNode("span", null, toDisplayString(unref(state).settings.dark ? "夜间" : "日间") + " · 字号" + toDisplayString((unref(FONT_STEPS).find((f) => f.key === unref(state).settings.fontScale) || {}).name || "标准"), 1),
               createVNode(_sfc_main$n, {
                 class: "chev",
@@ -27578,53 +27556,53 @@ const _sfc_main$1 = {
               })
             ])
           ]),
-          sec.value.look ? (openBlock(), createElementBlock("div", _hoisted_119, [
-            _cache[96] || (_cache[96] = createBaseVNode("div", { class: "field-label" }, "主题色", -1)),
-            createBaseVNode("div", _hoisted_120, [
+          sec.value.look ? (openBlock(), createElementBlock("div", _hoisted_110, [
+            _cache[94] || (_cache[94] = createBaseVNode("div", { class: "field-label" }, "主题色", -1)),
+            createBaseVNode("div", _hoisted_111, [
               (openBlock(true), createElementBlock(Fragment, null, renderList(unref(THEME_COLORS), (c) => {
                 return openBlock(), createElementBlock("button", {
                   key: c.key,
                   class: "chip",
                   "data-on": unref(state).settings.themeColor === c.key,
                   onClick: ($event) => themeColor(c.key)
-                }, toDisplayString(c.name), 9, _hoisted_121);
+                }, toDisplayString(c.name), 9, _hoisted_112);
               }), 128))
             ]),
-            createBaseVNode("div", _hoisted_122, [
-              _cache[94] || (_cache[94] = createBaseVNode("span", null, "夜间模式", -1)),
+            createBaseVNode("div", _hoisted_113, [
+              _cache[92] || (_cache[92] = createBaseVNode("span", null, "夜间模式", -1)),
               createVNode(_component_var_switch, {
                 "model-value": !!unref(state).settings.dark,
                 size: 19,
                 "onUpdate:modelValue": toggleDark
               }, null, 8, ["model-value"])
             ]),
-            createBaseVNode("div", _hoisted_123, [
-              _cache[95] || (_cache[95] = createBaseVNode("span", null, [
+            createBaseVNode("div", _hoisted_114, [
+              _cache[93] || (_cache[93] = createBaseVNode("span", null, [
                 createTextVNode("图片上传到图床"),
                 createBaseVNode("small", { class: "kv-sub" }, "本机更省空间")
               ], -1)),
               createVNode(_component_var_switch, {
                 "model-value": !!unref(state).settings.imageHost,
                 size: 19,
-                "onUpdate:modelValue": _cache[23] || (_cache[23] = (v) => unref(setSetting)("imageHost", !!v))
+                "onUpdate:modelValue": _cache[17] || (_cache[17] = (v) => unref(setSetting)("imageHost", !!v))
               }, null, 8, ["model-value"])
             ]),
-            unref(state).settings.imageHost && localImgCount.value ? (openBlock(), createElementBlock("div", _hoisted_124, [
+            unref(state).settings.imageHost && localImgCount.value ? (openBlock(), createElementBlock("div", _hoisted_115, [
               createBaseVNode("button", {
                 class: "chip",
                 onClick: migrateImages
               }, "迁移本机旧图（" + toDisplayString(localImgCount.value) + " 张）", 1)
             ])) : createCommentVNode("", true),
-            createBaseVNode("div", _hoisted_125, toDisplayString(unref(state).settings.imageHost ? "已开启：商品图/头像传到 esaimg.cdn1.vip，本机只存链接（导出包更小）；上传失败会自动回退存本机。" : "未开启：图片压缩后存本机 IndexedDB，不经过第三方；商品多时占空间较快。"), 1),
-            _cache[97] || (_cache[97] = createBaseVNode("div", { class: "field-label" }, "字号", -1)),
-            createBaseVNode("div", _hoisted_126, [
+            createBaseVNode("div", _hoisted_116, toDisplayString(unref(state).settings.imageHost ? "已开启：商品图/头像传到 esaimg.cdn1.vip，本机只存链接（导出包更小）；上传失败会自动回退存本机。" : "未开启：图片压缩后存本机 IndexedDB，不经过第三方；商品多时占空间较快。"), 1),
+            _cache[95] || (_cache[95] = createBaseVNode("div", { class: "field-label" }, "字号", -1)),
+            createBaseVNode("div", _hoisted_117, [
               (openBlock(true), createElementBlock(Fragment, null, renderList(unref(FONT_STEPS), (f) => {
                 return openBlock(), createElementBlock("button", {
                   key: f.key,
                   class: "chip",
                   "data-on": unref(state).settings.fontScale === f.key,
                   onClick: ($event) => setFont(f.key)
-                }, toDisplayString(f.name), 9, _hoisted_127);
+                }, toDisplayString(f.name), 9, _hoisted_118);
               }), 128))
             ])
           ])) : createCommentVNode("", true)
@@ -27634,16 +27612,16 @@ const _sfc_main$1 = {
         }, [
           createBaseVNode("button", {
             class: "fold-head",
-            onClick: _cache[24] || (_cache[24] = ($event) => toggle("local"))
+            onClick: _cache[18] || (_cache[18] = ($event) => toggle("local"))
           }, [
-            createBaseVNode("span", _hoisted_128, [
+            createBaseVNode("span", _hoisted_119, [
               createVNode(_sfc_main$n, {
                 name: "box",
                 size: 17
               }),
-              _cache[98] || (_cache[98] = createBaseVNode("b", null, "本机存储与操作日志", -1))
+              _cache[96] || (_cache[96] = createBaseVNode("b", null, "本机存储与操作日志", -1))
             ]),
-            createBaseVNode("span", _hoisted_129, [
+            createBaseVNode("span", _hoisted_120, [
               createBaseVNode("span", null, toDisplayString(usage.value && usage.value.estimate && usage.value.estimate.usage != null ? fmtBytes(usage.value.estimate.usage) : "—"), 1),
               createVNode(_sfc_main$n, {
                 class: "chev",
@@ -27652,53 +27630,53 @@ const _sfc_main$1 = {
               })
             ])
           ]),
-          sec.value.local ? (openBlock(), createElementBlock("div", _hoisted_130, [
-            createBaseVNode("div", _hoisted_131, [
-              _cache[99] || (_cache[99] = createBaseVNode("span", null, "存储方案", -1)),
+          sec.value.local ? (openBlock(), createElementBlock("div", _hoisted_121, [
+            createBaseVNode("div", _hoisted_122, [
+              _cache[97] || (_cache[97] = createBaseVNode("span", null, "存储方案", -1)),
               createBaseVNode("b", null, toDisplayString(unref(state).storageLabel || unref(state).storageKind), 1)
             ]),
-            createBaseVNode("div", _hoisted_132, [
-              _cache[100] || (_cache[100] = createBaseVNode("span", null, "IndexedDB", -1)),
+            createBaseVNode("div", _hoisted_123, [
+              _cache[98] || (_cache[98] = createBaseVNode("span", null, "IndexedDB", -1)),
               createBaseVNode("b", null, [
                 createTextVNode(toDisplayString(usage.value && usage.value.estimate && usage.value.estimate.usage != null ? fmtBytes(usage.value.estimate.usage) : "—") + " ", 1),
-                createBaseVNode("span", _hoisted_133, "配额 " + toDisplayString(usage.value && usage.value.estimate && usage.value.estimate.quota != null ? fmtBytes(usage.value.estimate.quota) : "—"), 1)
+                createBaseVNode("span", _hoisted_124, "配额 " + toDisplayString(usage.value && usage.value.estimate && usage.value.estimate.quota != null ? fmtBytes(usage.value.estimate.quota) : "—"), 1)
               ])
             ]),
-            createBaseVNode("div", _hoisted_134, [
-              _cache[101] || (_cache[101] = createBaseVNode("span", null, "localStorage", -1)),
+            createBaseVNode("div", _hoisted_125, [
+              _cache[99] || (_cache[99] = createBaseVNode("span", null, "localStorage", -1)),
               createBaseVNode("b", null, [
                 createTextVNode(toDisplayString(usage.value ? fmtBytes(usage.value.localBytes) : "—"), 1),
-                createBaseVNode("span", _hoisted_135, toDisplayString(usage.value ? usage.value.localKeys + " 个键" : ""), 1)
+                createBaseVNode("span", _hoisted_126, toDisplayString(usage.value ? usage.value.localKeys + " 个键" : ""), 1)
               ])
             ]),
-            createBaseVNode("div", _hoisted_136, [
-              _cache[102] || (_cache[102] = createBaseVNode("span", null, "设备", -1)),
-              createBaseVNode("b", _hoisted_137, toDisplayString(deviceId.value), 1)
+            createBaseVNode("div", _hoisted_127, [
+              _cache[100] || (_cache[100] = createBaseVNode("span", null, "设备", -1)),
+              createBaseVNode("b", _hoisted_128, toDisplayString(deviceId.value), 1)
             ]),
-            createBaseVNode("div", _hoisted_138, [
-              _cache[103] || (_cache[103] = createBaseVNode("span", null, "数据量", -1)),
+            createBaseVNode("div", _hoisted_129, [
+              _cache[101] || (_cache[101] = createBaseVNode("span", null, "数据量", -1)),
               createBaseVNode("b", null, toDisplayString(unref(state).collections.products.length) + " 商品 · " + toDisplayString(unref(state).collections.orders.length) + " 订单", 1)
             ]),
-            unref(state).storageErrors.length ? (openBlock(), createElementBlock("div", _hoisted_139, "降级原因：" + toDisplayString(unref(state).storageErrors.join(" / ")), 1)) : createCommentVNode("", true),
-            createBaseVNode("div", _hoisted_140, [
+            unref(state).storageErrors.length ? (openBlock(), createElementBlock("div", _hoisted_130, "降级原因：" + toDisplayString(unref(state).storageErrors.join(" / ")), 1)) : createCommentVNode("", true),
+            createBaseVNode("div", _hoisted_131, [
               createBaseVNode("button", {
                 class: "chip",
                 onClick: loadUsage
               }, "刷新用量"),
               createBaseVNode("button", {
                 class: "chip",
-                onClick: _cache[25] || (_cache[25] = ($event) => wipe("all"))
+                onClick: _cache[19] || (_cache[19] = ($event) => wipe("all"))
               }, "清空全部（IndexedDB + localStorage）")
             ]),
-            _cache[104] || (_cache[104] = createBaseVNode("div", {
+            _cache[102] || (_cache[102] = createBaseVNode("div", {
               class: "hint",
               style: { "margin-top": "8px" }
             }, "清空只影响这台设备，换设备/换浏览器各有一份自己的库。", -1)),
-            _cache[105] || (_cache[105] = createBaseVNode("div", {
+            _cache[103] || (_cache[103] = createBaseVNode("div", {
               class: "mini-head",
               style: { "margin-top": "14px" }
             }, "示例数据", -1)),
-            createBaseVNode("div", _hoisted_141, [
+            createBaseVNode("div", _hoisted_132, [
               unref(allow)("store:write") ? (openBlock(), createElementBlock("button", {
                 key: 0,
                 class: "chip",
@@ -27710,7 +27688,7 @@ const _sfc_main$1 = {
                 onClick: reset
               }, "恢复示例数据")) : createCommentVNode("", true)
             ]),
-            _cache[106] || (_cache[106] = createBaseVNode("div", {
+            _cache[104] || (_cache[104] = createBaseVNode("div", {
               class: "mini-head",
               style: { "margin-top": "16px" }
             }, "最近操作", -1)),
@@ -27720,9 +27698,9 @@ const _sfc_main$1 = {
                 class: normalizeClass(["log-row", { linkable: logClickable(l) }]),
                 onClick: ($event) => openLogRow(l)
               }, [
-                createBaseVNode("span", _hoisted_143, toDisplayString(unref(fmtTime)(l.at)), 1),
-                createBaseVNode("span", _hoisted_144, toDisplayString(typeText(l.type)), 1),
-                createBaseVNode("span", _hoisted_145, [
+                createBaseVNode("span", _hoisted_134, toDisplayString(unref(fmtTime)(l.at)), 1),
+                createBaseVNode("span", _hoisted_135, toDisplayString(typeText(l.type)), 1),
+                createBaseVNode("span", _hoisted_136, [
                   createTextVNode(toDisplayString(l.text), 1),
                   logClickable(l) ? (openBlock(), createBlock(_sfc_main$n, {
                     key: 0,
@@ -27730,7 +27708,7 @@ const _sfc_main$1 = {
                     size: 12,
                     class: "log-go"
                   })) : createCommentVNode("", true),
-                  createBaseVNode("em", _hoisted_146, [
+                  createBaseVNode("em", _hoisted_137, [
                     createTextVNode(toDisplayString(l.operatorName || "我"), 1),
                     logWhere(l) ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [
                       createTextVNode(" · " + toDisplayString(logWhere(l)), 1)
@@ -27740,9 +27718,9 @@ const _sfc_main$1 = {
                     ], 64)) : createCommentVNode("", true)
                   ])
                 ])
-              ], 10, _hoisted_142);
+              ], 10, _hoisted_133);
             }), 128)),
-            !recentLogs.value.length ? (openBlock(), createElementBlock("div", _hoisted_147, "还没有记录。开单、改库存、调拨、建店都会自动留一条。")) : createCommentVNode("", true),
+            !recentLogs.value.length ? (openBlock(), createElementBlock("div", _hoisted_138, "还没有记录。开单、改库存、调拨、建店都会自动留一条。")) : createCommentVNode("", true),
             createBaseVNode("button", {
               class: "chip",
               style: { "margin-top": "10px" },
@@ -27750,21 +27728,21 @@ const _sfc_main$1 = {
             }, "查看全部 " + toDisplayString(scopedLogs.value.length) + " 条", 1)
           ])) : createCommentVNode("", true)
         ], 2),
-        createBaseVNode("div", _hoisted_148, [
+        createBaseVNode("div", _hoisted_139, [
           createBaseVNode("button", {
             class: "menu-row",
             style: { "width": "100%" },
-            onClick: _cache[26] || (_cache[26] = ($event) => helpOpen.value = true)
+            onClick: _cache[20] || (_cache[20] = ($event) => helpOpen.value = true)
           }, [
-            createBaseVNode("span", _hoisted_149, [
+            createBaseVNode("span", _hoisted_140, [
               createVNode(_sfc_main$n, {
                 name: "list",
                 size: 17
               }),
-              _cache[107] || (_cache[107] = createBaseVNode("b", null, "功能使用说明", -1))
+              _cache[105] || (_cache[105] = createBaseVNode("b", null, "功能使用说明", -1))
             ]),
-            createBaseVNode("span", _hoisted_150, [
-              _cache[108] || (_cache[108] = createBaseVNode("span", null, "开单 / 库存 / 代理 / 导出", -1)),
+            createBaseVNode("span", _hoisted_141, [
+              _cache[106] || (_cache[106] = createBaseVNode("span", null, "开单 / 库存 / 代理 / 导出", -1)),
               createVNode(_sfc_main$n, {
                 class: "chev",
                 name: "chev",
@@ -27778,17 +27756,17 @@ const _sfc_main$1 = {
         }, [
           createBaseVNode("button", {
             class: "fold-head",
-            onClick: _cache[27] || (_cache[27] = ($event) => toggle("help"))
+            onClick: _cache[21] || (_cache[21] = ($event) => toggle("help"))
           }, [
-            createBaseVNode("span", _hoisted_151, [
+            createBaseVNode("span", _hoisted_142, [
               createVNode(_sfc_main$n, {
                 name: "alert",
                 size: 17
               }),
-              _cache[109] || (_cache[109] = createBaseVNode("b", null, "规则说明", -1))
+              _cache[107] || (_cache[107] = createBaseVNode("b", null, "规则说明", -1))
             ]),
-            createBaseVNode("span", _hoisted_152, [
-              _cache[110] || (_cache[110] = createBaseVNode("span", null, "数据口径 / 三种包 / 权限", -1)),
+            createBaseVNode("span", _hoisted_143, [
+              _cache[108] || (_cache[108] = createBaseVNode("span", null, "数据口径 / 三种包 / 权限", -1)),
               createVNode(_sfc_main$n, {
                 class: "chev",
                 name: "chev",
@@ -27796,26 +27774,26 @@ const _sfc_main$1 = {
               })
             ])
           ]),
-          sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_153, [..._cache[111] || (_cache[111] = [
-            createStaticVNode('<p class="hint" style="line-height:2;" data-v-8a6e60e9> · 数据默认存 IndexedDB（库 <span class="mono" data-v-8a6e60e9>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-8a6e60e9> · <b data-v-8a6e60e9>同步包 ≠ 整机备份</b>（两者导出的数据几乎一样，区别只在「导入时怎么落库」）：<br data-v-8a6e60e9> 　– <b data-v-8a6e60e9>同步包</b>（.json + sync 标记）：导入是<b data-v-8a6e60e9>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-8a6e60e9> 　– <b data-v-8a6e60e9>整机备份</b>（.json，无标记）：导入是<b data-v-8a6e60e9>合并</b>，同 id 取更新时间新的、本机独有的留着 → 目标是备份/迁移，换机时不会因为导入把旧设备上的新数据冲掉。<br data-v-8a6e60e9> 　– 一句话记：<b data-v-8a6e60e9>同步 = 覆盖成一模一样</b>，<b data-v-8a6e60e9>备份 = 合并、谁都不丢</b>。<br data-v-8a6e60e9> · 三种数据包，互不混淆：<b data-v-8a6e60e9>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-8a6e60e9>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-8a6e60e9>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-8a6e60e9> · 店铺包导入规则：本机已有这家店（自己导自己，或这家店本来就归你）→ 直接做一次数据更新； 本机没有 → 建一家「共管店铺」挂进来，商品/仓库/订单/日志一起落地。<br data-v-8a6e60e9> · 「共管」店铺可以随时<b data-v-8a6e60e9>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-8a6e60e9> · 代理端是本站的 <span class="mono" data-v-8a6e60e9>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-8a6e60e9> · <b data-v-8a6e60e9>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-8a6e60e9> · <b data-v-8a6e60e9>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-8a6e60e9> · <b data-v-8a6e60e9>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-8a6e60e9> · <b data-v-8a6e60e9>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-8a6e60e9> · <b data-v-8a6e60e9>代理包导入不会升级成共管</b>：代理包里不带仓库（代理没有仓库权限），店铺标记固定为「代理」， 挂仓库、建仓、给这家店生成代理这几个入口都会被拦下。<br data-v-8a6e60e9> · <b data-v-8a6e60e9>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-8a6e60e9> · <b data-v-8a6e60e9>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店主的设备重新导一次店铺包。<br data-v-8a6e60e9> · 店铺带两种「不是自己建的」标记：<b data-v-8a6e60e9>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-8a6e60e9>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-8a6e60e9> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-8a6e60e9> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
+          sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_144, [..._cache[109] || (_cache[109] = [
+            createStaticVNode('<p class="hint" style="line-height:2;" data-v-4822715f> · 数据默认存 IndexedDB（库 <span class="mono" data-v-4822715f>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-4822715f> · <b data-v-4822715f>同步包 ≠ 整机备份</b>（两者导出的数据几乎一样，区别只在「导入时怎么落库」）：<br data-v-4822715f> 　– <b data-v-4822715f>同步包</b>（.json + sync 标记）：导入是<b data-v-4822715f>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-4822715f> 　– <b data-v-4822715f>整机备份</b>（.json，无标记）：导入是<b data-v-4822715f>合并</b>，同 id 取更新时间新的、本机独有的留着 → 目标是备份/迁移，换机时不会因为导入把旧设备上的新数据冲掉。<br data-v-4822715f> 　– 一句话记：<b data-v-4822715f>同步 = 覆盖成一模一样</b>，<b data-v-4822715f>备份 = 合并、谁都不丢</b>。<br data-v-4822715f> · 三种数据包，互不混淆：<b data-v-4822715f>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-4822715f>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-4822715f>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-4822715f> · 店铺包导入规则：本机已有这家店（自己导自己，或这家店本来就归你）→ 直接做一次数据更新； 本机没有 → 建一家「共管店铺」挂进来，商品/仓库/订单/日志一起落地。<br data-v-4822715f> · 「共管」店铺可以随时<b data-v-4822715f>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-4822715f> · 代理端是本站的 <span class="mono" data-v-4822715f>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-4822715f> · <b data-v-4822715f>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-4822715f> · <b data-v-4822715f>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-4822715f> · <b data-v-4822715f>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-4822715f> · <b data-v-4822715f>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-4822715f> · <b data-v-4822715f>代理包导入不会升级成共管</b>：代理包里不带仓库（代理没有仓库权限），店铺标记固定为「代理」， 挂仓库、建仓、给这家店生成代理这几个入口都会被拦下。<br data-v-4822715f> · <b data-v-4822715f>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-4822715f> · <b data-v-4822715f>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店主的设备重新导一次店铺包。<br data-v-4822715f> · 店铺带两种「不是自己建的」标记：<b data-v-4822715f>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-4822715f>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-4822715f> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-4822715f> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
           ])])) : createCommentVNode("", true)
         ], 2),
         createVNode(_component_var_popup, {
           show: logOpen.value,
           position: "bottom",
-          "onUpdate:show": _cache[29] || (_cache[29] = (v) => logOpen.value = v)
+          "onUpdate:show": _cache[23] || (_cache[23] = (v) => logOpen.value = v)
         }, {
           default: withCtx(() => [
-            createBaseVNode("div", _hoisted_154, [
-              createBaseVNode("header", _hoisted_155, [
+            createBaseVNode("div", _hoisted_145, [
+              createBaseVNode("header", _hoisted_146, [
                 createBaseVNode("div", null, [
                   createBaseVNode("b", null, "全部操作日志 · " + toDisplayString(store.value ? store.value.name : ""), 1),
-                  createBaseVNode("div", _hoisted_156, "本店日志（含代理/共管在他店的操作）· 共 " + toDisplayString(scopedLogs.value.length) + " 条，全量保留、随同步包一起流转", 1)
+                  createBaseVNode("div", _hoisted_147, "本店日志（含代理/共管在他店的操作）· 共 " + toDisplayString(scopedLogs.value.length) + " 条，全量保留、随同步包一起流转", 1)
                 ]),
                 createBaseVNode("button", {
                   class: "icon-btn",
                   "aria-label": "关闭",
-                  onClick: _cache[28] || (_cache[28] = ($event) => unref(withBusy)("正在收起日志…", async () => {
+                  onClick: _cache[22] || (_cache[22] = ($event) => unref(withBusy)("正在收起日志…", async () => {
                     logOpen.value = false;
                   }))
                 }, [
@@ -27825,16 +27803,16 @@ const _sfc_main$1 = {
                   })
                 ])
               ]),
-              createBaseVNode("div", _hoisted_157, [
+              createBaseVNode("div", _hoisted_148, [
                 (openBlock(true), createElementBlock(Fragment, null, renderList(shownLogs.value, (l) => {
                   return openBlock(), createElementBlock("div", {
                     key: l.id,
                     class: normalizeClass(["log-row", { linkable: logClickable(l) }]),
                     onClick: ($event) => openLogRow(l)
                   }, [
-                    createBaseVNode("span", _hoisted_159, toDisplayString(unref(fmtTime)(l.at)), 1),
-                    createBaseVNode("span", _hoisted_160, toDisplayString(typeText(l.type)), 1),
-                    createBaseVNode("span", _hoisted_161, [
+                    createBaseVNode("span", _hoisted_150, toDisplayString(unref(fmtTime)(l.at)), 1),
+                    createBaseVNode("span", _hoisted_151, toDisplayString(typeText(l.type)), 1),
+                    createBaseVNode("span", _hoisted_152, [
                       createTextVNode(toDisplayString(l.text), 1),
                       logClickable(l) ? (openBlock(), createBlock(_sfc_main$n, {
                         key: 0,
@@ -27842,7 +27820,7 @@ const _sfc_main$1 = {
                         size: 12,
                         class: "log-go"
                       })) : createCommentVNode("", true),
-                      createBaseVNode("em", _hoisted_162, [
+                      createBaseVNode("em", _hoisted_153, [
                         createTextVNode(toDisplayString(l.operatorName || "我"), 1),
                         logWhere(l) ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [
                           createTextVNode(" · " + toDisplayString(logWhere(l)), 1)
@@ -27852,9 +27830,9 @@ const _sfc_main$1 = {
                         ], 64)) : createCommentVNode("", true)
                       ])
                     ])
-                  ], 10, _hoisted_158);
+                  ], 10, _hoisted_149);
                 }), 128)),
-                !scopedLogs.value.length ? (openBlock(), createElementBlock("div", _hoisted_163, [..._cache[112] || (_cache[112] = [
+                !scopedLogs.value.length ? (openBlock(), createElementBlock("div", _hoisted_154, [..._cache[110] || (_cache[110] = [
                   createBaseVNode("b", null, "这家店还没有日志", -1),
                   createTextVNode("开单、改库存、调拨都会记下来", -1)
                 ])])) : shownLogs.value.length < scopedLogs.value.length ? (openBlock(), createElementBlock("button", {
@@ -27863,12 +27841,12 @@ const _sfc_main$1 = {
                   style: { "margin-top": "12px" },
                   onClick: loadMoreLogs
                 }, [
-                  createBaseVNode("span", _hoisted_164, [
-                    _cache[113] || (_cache[113] = createTextVNode("还有 ", -1)),
+                  createBaseVNode("span", _hoisted_155, [
+                    _cache[111] || (_cache[111] = createTextVNode("还有 ", -1)),
                     createBaseVNode("b", null, toDisplayString(scopedLogs.value.length - shownLogs.value.length), 1),
-                    _cache[114] || (_cache[114] = createTextVNode(" 条", -1))
+                    _cache[112] || (_cache[112] = createTextVNode(" 条", -1))
                   ]),
-                  _cache[115] || (_cache[115] = createBaseVNode("span", { class: "lm-sub" }, "再看 80 条", -1)),
+                  _cache[113] || (_cache[113] = createBaseVNode("span", { class: "lm-sub" }, "再看 80 条", -1)),
                   createVNode(_sfc_main$n, {
                     name: "chev",
                     size: 14,
@@ -27883,19 +27861,19 @@ const _sfc_main$1 = {
         createVNode(_component_var_popup, {
           show: avatarOpen.value,
           position: "bottom",
-          "onUpdate:show": _cache[33] || (_cache[33] = (v) => avatarOpen.value = v)
+          "onUpdate:show": _cache[27] || (_cache[27] = (v) => avatarOpen.value = v)
         }, {
           default: withCtx(() => [
-            createBaseVNode("div", _hoisted_165, [
-              createBaseVNode("header", _hoisted_166, [
-                _cache[116] || (_cache[116] = createBaseVNode("div", null, [
+            createBaseVNode("div", _hoisted_156, [
+              createBaseVNode("header", _hoisted_157, [
+                _cache[114] || (_cache[114] = createBaseVNode("div", null, [
                   createBaseVNode("b", null, "更换头像"),
                   createBaseVNode("div", { class: "hint" }, "上传的图会压到 128px，不占本机空间")
                 ], -1)),
                 createBaseVNode("button", {
                   class: "icon-btn",
                   "aria-label": "关闭",
-                  onClick: _cache[30] || (_cache[30] = ($event) => avatarOpen.value = false)
+                  onClick: _cache[24] || (_cache[24] = ($event) => avatarOpen.value = false)
                 }, [
                   createVNode(_sfc_main$n, {
                     name: "close",
@@ -27903,19 +27881,19 @@ const _sfc_main$1 = {
                   })
                 ])
               ]),
-              createBaseVNode("div", _hoisted_167, [
-                createBaseVNode("div", _hoisted_168, [
+              createBaseVNode("div", _hoisted_158, [
+                createBaseVNode("div", _hoisted_159, [
                   unref(state).settings.avatar ? (openBlock(), createElementBlock("img", {
                     key: 0,
                     src: unref(state).settings.avatar,
                     alt: "当前头像"
-                  }, null, 8, _hoisted_169)) : (openBlock(), createBlock(_sfc_main$n, {
+                  }, null, 8, _hoisted_160)) : (openBlock(), createBlock(_sfc_main$n, {
                     key: 1,
                     name: "user",
                     size: 30
                   }))
                 ]),
-                createBaseVNode("label", _hoisted_170, [
+                createBaseVNode("label", _hoisted_161, [
                   createBaseVNode("input", {
                     type: "file",
                     accept: "image/*",
@@ -27926,15 +27904,15 @@ const _sfc_main$1 = {
                     name: "upload",
                     size: 18
                   }),
-                  _cache[117] || (_cache[117] = createBaseVNode("span", null, "从相册选一张", -1))
+                  _cache[115] || (_cache[115] = createBaseVNode("span", null, "从相册选一张", -1))
                 ]),
-                _cache[119] || (_cache[119] = createBaseVNode("div", {
+                _cache[117] || (_cache[117] = createBaseVNode("div", {
                   class: "field-label",
                   style: { "margin-top": "14px" }
                 }, "或者贴一个图片链接", -1)),
-                createBaseVNode("div", _hoisted_171, [
+                createBaseVNode("div", _hoisted_162, [
                   withDirectives(createBaseVNode("input", {
-                    "onUpdate:modelValue": _cache[31] || (_cache[31] = ($event) => avatarUrl.value = $event),
+                    "onUpdate:modelValue": _cache[25] || (_cache[25] = ($event) => avatarUrl.value = $event),
                     class: "inp",
                     placeholder: "https://…/avatar.jpg"
                   }, null, 512), [
@@ -27944,7 +27922,7 @@ const _sfc_main$1 = {
                     type: "primary",
                     onClick: useAvatarUrl
                   }, {
-                    default: withCtx(() => [..._cache[118] || (_cache[118] = [
+                    default: withCtx(() => [..._cache[116] || (_cache[116] = [
                       createTextVNode("用这个", -1)
                     ])]),
                     _: 1
@@ -27953,7 +27931,7 @@ const _sfc_main$1 = {
                 createBaseVNode("button", {
                   class: "chip",
                   style: { "margin-top": "14px" },
-                  onClick: _cache[32] || (_cache[32] = ($event) => saveAvatar(""))
+                  onClick: _cache[26] || (_cache[26] = ($event) => saveAvatar(""))
                 }, "恢复默认头像")
               ])
             ])
@@ -27963,14 +27941,14 @@ const _sfc_main$1 = {
         createVNode(_component_var_popup, {
           show: menu.value.show,
           position: "bottom",
-          "onUpdate:show": _cache[35] || (_cache[35] = (v) => menu.value.show = v)
+          "onUpdate:show": _cache[29] || (_cache[29] = (v) => menu.value.show = v)
         }, {
           default: withCtx(() => [
-            createBaseVNode("div", _hoisted_172, [
-              _cache[120] || (_cache[120] = createBaseVNode("div", { class: "drag" }, null, -1)),
-              createBaseVNode("div", _hoisted_173, [
+            createBaseVNode("div", _hoisted_163, [
+              _cache[118] || (_cache[118] = createBaseVNode("div", { class: "drag" }, null, -1)),
+              createBaseVNode("div", _hoisted_164, [
                 createBaseVNode("b", null, toDisplayString(menu.value.title), 1),
-                createBaseVNode("span", _hoisted_174, toDisplayString(menu.value.sub), 1)
+                createBaseVNode("span", _hoisted_165, toDisplayString(menu.value.sub), 1)
               ]),
               (openBlock(true), createElementBlock(Fragment, null, renderList(menu.value.items, (it, i) => {
                 return openBlock(), createElementBlock("button", {
@@ -27978,7 +27956,7 @@ const _sfc_main$1 = {
                   class: normalizeClass(["menu-row", { danger: it.danger }]),
                   onClick: ($event) => runMenu(it)
                 }, [
-                  createBaseVNode("span", _hoisted_176, [
+                  createBaseVNode("span", _hoisted_167, [
                     createBaseVNode("b", null, toDisplayString(it.label), 1),
                     createBaseVNode("span", null, toDisplayString(it.desc), 1)
                   ]),
@@ -27991,11 +27969,11 @@ const _sfc_main$1 = {
                     name: "chev",
                     size: 14
                   }))
-                ], 10, _hoisted_175);
+                ], 10, _hoisted_166);
               }), 128)),
               createBaseVNode("button", {
                 class: "menu-cancel",
-                onClick: _cache[34] || (_cache[34] = ($event) => menu.value.show = false)
+                onClick: _cache[28] || (_cache[28] = ($event) => menu.value.show = false)
               }, "取消")
             ])
           ]),
@@ -28003,36 +27981,150 @@ const _sfc_main$1 = {
         }, 8, ["show"]),
         createVNode(AgentSheet, {
           show: agentOpen.value,
-          "onUpdate:show": _cache[36] || (_cache[36] = ($event) => agentOpen.value = $event)
+          "onUpdate:show": _cache[30] || (_cache[30] = ($event) => agentOpen.value = $event)
         }, null, 8, ["show"]),
         createVNode(LoginSheet, {
           show: loginOpen.value,
-          "onUpdate:show": _cache[37] || (_cache[37] = ($event) => loginOpen.value = $event)
+          "onUpdate:show": _cache[31] || (_cache[31] = ($event) => loginOpen.value = $event)
         }, null, 8, ["show"]),
-        rebuild.value.on ? (openBlock(), createElementBlock("div", _hoisted_177, [
-          createBaseVNode("div", _hoisted_178, [
-            createBaseVNode("div", _hoisted_179, [
+        createVNode(_component_var_popup, {
+          show: expOpen.value,
+          position: "bottom",
+          "onUpdate:show": _cache[39] || (_cache[39] = (v) => expOpen.value = v)
+        }, {
+          default: withCtx(() => [
+            createBaseVNode("div", _hoisted_168, [
+              createBaseVNode("header", _hoisted_169, [
+                createBaseVNode("b", null, toDisplayString(expEditId.value ? "修改杂费" : "记一笔杂费"), 1),
+                createBaseVNode("button", {
+                  class: "icon-btn",
+                  "aria-label": "关闭",
+                  onClick: _cache[32] || (_cache[32] = ($event) => expOpen.value = false)
+                }, [
+                  createVNode(_sfc_main$n, {
+                    name: "close",
+                    size: 18
+                  })
+                ])
+              ]),
+              createBaseVNode("div", _hoisted_170, [
+                _cache[120] || (_cache[120] = createBaseVNode("div", { class: "field-label" }, "类型", -1)),
+                createBaseVNode("div", _hoisted_171, [
+                  (openBlock(true), createElementBlock(Fragment, null, renderList(unref(EXPENSE_KINDS), (k) => {
+                    return openBlock(), createElementBlock("button", {
+                      key: k.key,
+                      class: "chip",
+                      "data-on": expForm.value.kind === k.key,
+                      onClick: ($event) => expForm.value.kind = k.key
+                    }, toDisplayString(k.name), 9, _hoisted_172);
+                  }), 128))
+                ]),
+                withDirectives(createBaseVNode("input", {
+                  class: "inp",
+                  style: { "margin-top": "10px" },
+                  "onUpdate:modelValue": _cache[33] || (_cache[33] = ($event) => expForm.value.name = $event),
+                  placeholder: "备注名，例如「8 月摊位费」",
+                  maxlength: "40"
+                }, null, 512), [
+                  [vModelText, expForm.value.name]
+                ]),
+                _cache[121] || (_cache[121] = createBaseVNode("div", {
+                  class: "field-label",
+                  style: { "margin-top": "10px" }
+                }, "金额", -1)),
+                withDirectives(createBaseVNode("input", {
+                  class: "inp tnum",
+                  "onUpdate:modelValue": _cache[34] || (_cache[34] = ($event) => expForm.value.amount = $event),
+                  inputmode: "decimal",
+                  placeholder: "0.00"
+                }, null, 512), [
+                  [vModelText, expForm.value.amount]
+                ]),
+                _cache[122] || (_cache[122] = createBaseVNode("div", {
+                  class: "field-label",
+                  style: { "margin-top": "10px" }
+                }, "怎么算", -1)),
+                createBaseVNode("div", _hoisted_173, [
+                  (openBlock(true), createElementBlock(Fragment, null, renderList(unref(EXPENSE_MODES), (m) => {
+                    return openBlock(), createElementBlock("button", {
+                      key: m.key,
+                      class: "chip",
+                      "data-on": expForm.value.mode === m.key,
+                      onClick: ($event) => expForm.value.mode = m.key
+                    }, toDisplayString(m.name), 9, _hoisted_174);
+                  }), 128))
+                ]),
+                createBaseVNode("div", _hoisted_175, [
+                  createBaseVNode("label", null, [
+                    createBaseVNode("span", null, toDisplayString(expForm.value.mode === "once" ? "发生日期" : "开始"), 1),
+                    withDirectives(createBaseVNode("input", {
+                      class: "inp",
+                      type: "date",
+                      "onUpdate:modelValue": _cache[35] || (_cache[35] = ($event) => expForm.value.from = $event)
+                    }, null, 512), [
+                      [vModelText, expForm.value.from]
+                    ])
+                  ]),
+                  expForm.value.mode !== "once" ? (openBlock(), createElementBlock("label", _hoisted_176, [
+                    _cache[119] || (_cache[119] = createBaseVNode("span", null, "结束", -1)),
+                    withDirectives(createBaseVNode("input", {
+                      class: "inp",
+                      type: "date",
+                      "onUpdate:modelValue": _cache[36] || (_cache[36] = ($event) => expForm.value.to = $event)
+                    }, null, 512), [
+                      [vModelText, expForm.value.to]
+                    ])
+                  ])) : createCommentVNode("", true)
+                ]),
+                withDirectives(createBaseVNode("input", {
+                  class: "inp",
+                  style: { "margin-top": "10px" },
+                  "onUpdate:modelValue": _cache[37] || (_cache[37] = ($event) => expForm.value.note = $event),
+                  placeholder: "备注（选填）",
+                  maxlength: "80"
+                }, null, 512), [
+                  [vModelText, expForm.value.note]
+                ]),
+                createBaseVNode("div", _hoisted_177, toDisplayString(expHint.value), 1)
+              ]),
+              createBaseVNode("footer", _hoisted_178, [
+                createBaseVNode("button", {
+                  class: "btn ghost",
+                  onClick: _cache[38] || (_cache[38] = ($event) => expOpen.value = false)
+                }, "取消"),
+                createBaseVNode("button", {
+                  class: "btn jade",
+                  onClick: submitExpense
+                }, toDisplayString(expEditId.value ? "保存修改" : "记下这笔"), 1)
+              ])
+            ])
+          ]),
+          _: 1
+        }, 8, ["show"]),
+        rebuild.value.on ? (openBlock(), createElementBlock("div", _hoisted_179, [
+          createBaseVNode("div", _hoisted_180, [
+            createBaseVNode("div", _hoisted_181, [
               createVNode(BrandLoading, { size: 50 })
             ]),
-            createBaseVNode("div", _hoisted_180, toDisplayString(rebuild.value.title), 1),
-            createBaseVNode("div", _hoisted_181, toDisplayString(rebuild.value.text), 1),
-            createBaseVNode("div", _hoisted_182, [
+            createBaseVNode("div", _hoisted_182, toDisplayString(rebuild.value.title), 1),
+            createBaseVNode("div", _hoisted_183, toDisplayString(rebuild.value.text), 1),
+            createBaseVNode("div", _hoisted_184, [
               createBaseVNode("i", {
                 style: normalizeStyle({ width: rebuild.value.pct + "%" })
               }, null, 4)
             ]),
-            createBaseVNode("div", _hoisted_183, toDisplayString(rebuild.value.mode === "rebuild" ? "完成后页面自动刷新。" : "") + "请不要关闭页面、切到别的标签页或锁屏。", 1)
+            createBaseVNode("div", _hoisted_185, toDisplayString(rebuild.value.mode === "rebuild" ? "完成后页面自动刷新。" : "") + "请不要关闭页面、切到别的标签页或锁屏。", 1)
           ])
         ])) : createCommentVNode("", true),
         createVNode(HelpSheet, {
           show: helpOpen.value,
-          "onUpdate:show": _cache[38] || (_cache[38] = ($event) => helpOpen.value = $event)
+          "onUpdate:show": _cache[40] || (_cache[40] = ($event) => helpOpen.value = $event)
         }, null, 8, ["show"])
       ]);
     };
   }
 };
-const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-8a6e60e9"]]);
+const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-4822715f"]]);
 const errBox = /* @__PURE__ */ reactive({ list: [], count: 0, seen: 0 });
 let installed = false;
 const MAX = 30;
