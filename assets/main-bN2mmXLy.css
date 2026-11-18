@@ -955,70 +955,70 @@ input, textarea, [contenteditable='true'] { -webkit-user-select: text; user-sele
 .ns-tip[data-v-9a5b63bb] { padding: 6px 16px 0; font-size: 11.5px; color: var(--mute);
 }
 
-.scan-sheet[data-v-049c4748] { padding-bottom: 0;
+.scan-sheet[data-v-02def4da] { padding-bottom: 0;
 }
-.scan-sheet .hint[data-v-049c4748] { padding: 0 16px;
+.scan-sheet .hint[data-v-02def4da] { padding: 0 16px;
 }
-.scan-manual[data-v-049c4748] { padding-bottom: 6px;
+.scan-manual[data-v-02def4da] { padding-bottom: 6px;
 }
-.scan-snap[data-v-049c4748] { padding: 10px 16px 0; display: flex; flex-direction: column; gap: 5px; align-items: center;
+.scan-snap[data-v-02def4da] { padding: 10px 16px 0; display: flex; flex-direction: column; gap: 5px; align-items: center;
 }
-.scan-snap .btn[data-v-049c4748] { min-height: 38px; padding: 0 22px; border-radius: 999px; border: 1px solid var(--jade-line); background: var(--card); color: var(--jade); font-size: 13px;
+.scan-snap .btn[data-v-02def4da] { min-height: 38px; padding: 0 22px; border-radius: 999px; border: 1px solid var(--jade-line); background: var(--card); color: var(--jade); font-size: 13px;
 }
-.scan-snap .btn[data-v-049c4748]:disabled { opacity: .6;
+.scan-snap .btn[data-v-02def4da]:disabled { opacity: .6;
 }
-.scan-snap .hint[data-v-049c4748] { text-align: center; margin: 0;
+.scan-snap .hint[data-v-02def4da] { text-align: center; margin: 0;
 }
-.scan-next[data-v-049c4748] { padding: 10px 16px 0;
+.scan-next[data-v-02def4da] { padding: 10px 16px 0;
 }
-.scan-next .btn[data-v-049c4748] { width: 100%; min-height: 42px;
+.scan-next .btn[data-v-02def4da] { width: 100%; min-height: 42px;
 }
-.last-hit[data-v-049c4748] {
+.last-hit[data-v-02def4da] {
   margin: 8px 16px 0; padding: 7px 10px; border-radius: 9px;
   background: var(--jade-soft); color: var(--jade); font-size: 12.5px; text-align: center;
 }
-.scan-stage[data-v-049c4748] {
+.scan-stage[data-v-02def4da] {
   position: relative; margin: 0 16px; border-radius: 14px; overflow: hidden;
   background: #0d1512; aspect-ratio: 4 / 3; max-height: 38vh;
 }
-.scan-video[data-v-049c4748] { width: 100%; height: 100%; object-fit: cover; display: block;
+.scan-video[data-v-02def4da] { width: 100%; height: 100%; object-fit: cover; display: block;
 }
-.scan-frame[data-v-049c4748] {
+.scan-frame[data-v-02def4da] {
   position: absolute; inset: 16% 12%; border-radius: 12px;
   box-shadow: 0 0 0 2px rgba(255, 255, 255, .55) inset;
   pointer-events: none;
 }
-.scan-frame[data-v-049c4748]::before, .scan-frame[data-v-049c4748]::after {
+.scan-frame[data-v-02def4da]::before, .scan-frame[data-v-02def4da]::after {
   content: ''; position: absolute; width: 22px; height: 22px; border: 3px solid var(--brand-yellow, #F6EF03);
 }
-.scan-frame[data-v-049c4748]::before { left: -3px; top: -3px; border-right: 0; border-bottom: 0; border-radius: 10px 0 0 0;
+.scan-frame[data-v-02def4da]::before { left: -3px; top: -3px; border-right: 0; border-bottom: 0; border-radius: 10px 0 0 0;
 }
-.scan-frame[data-v-049c4748]::after { right: -3px; bottom: -3px; border-left: 0; border-top: 0; border-radius: 0 0 10px 0;
+.scan-frame[data-v-02def4da]::after { right: -3px; bottom: -3px; border-left: 0; border-top: 0; border-radius: 0 0 10px 0;
 }
-.scan-line[data-v-049c4748] {
+.scan-line[data-v-02def4da] {
   position: absolute; left: 8%; right: 8%; height: 2px; top: 50%;
   background: var(--brand-yellow, #F6EF03);
   box-shadow: 0 0 10px rgba(246, 239, 3, .7);
-  animation: scanmove-049c4748 1.8s ease-in-out infinite alternate;
+  animation: scanmove-02def4da 1.8s ease-in-out infinite alternate;
 }
-@keyframes scanmove-049c4748 {
+@keyframes scanmove-02def4da {
 from { transform: translateY(-34px); opacity: .55;
 }
 to { transform: translateY(34px); opacity: 1;
 }
 }
-.retry[data-v-049c4748] { margin-top: 4px; min-height: 32px; padding: 0 14px;
+.retry[data-v-02def4da] { margin-top: 4px; min-height: 32px; padding: 0 14px;
 }
-.scan-mask[data-v-049c4748] {
+.scan-mask[data-v-02def4da] {
   position: absolute; inset: 0; display: flex; flex-direction: column; gap: 8px;
   align-items: center; justify-content: center; padding: 18px;
   background: rgba(13, 21, 18, .78); color: #fff; font-size: 12.5px; text-align: center;
 }
-.scan-manual[data-v-049c4748] { display: flex; gap: 8px; padding: 12px 16px 0; align-items: center;
+.scan-manual[data-v-02def4da] { display: flex; gap: 8px; padding: 12px 16px 0; align-items: center;
 }
-.scan-manual .inp[data-v-049c4748] { flex: 1; min-width: 0;
+.scan-manual .inp[data-v-02def4da] { flex: 1; min-width: 0;
 }
-.scan-manual .btn[data-v-049c4748] { flex: 0 0 auto; min-height: 40px; padding: 0 18px;
+.scan-manual .btn[data-v-02def4da] { flex: 0 0 auto; min-height: 40px; padding: 0 18px;
 }
 
 /* 收银台的扫码入口做得更醒目：连续扫码是高频动作，太小不好按 */

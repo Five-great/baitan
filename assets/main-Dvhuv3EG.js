@@ -17040,7 +17040,6 @@ const __vitePreload = function preload(baseModule, deps, importerUrl) {
     return baseModule().catch(handlePreloadError);
   });
 };
-const SCAN_FORMATS = ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "itf", "codabar"];
 function cleanScan(raw) {
   let v = String(raw == null ? "" : raw).replace(/[０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 65248)).replace(/[\s\u200b-\u200d\ufeff]/g, "");
   if (!v) return "";
@@ -17050,9 +17049,6 @@ function cleanScan(raw) {
   if (!/^[0-9A-Za-z\-\.\/\+\$%]+$/.test(v)) return "";
   return v;
 }
-function barcodeSupported() {
-  return typeof window !== "undefined" && "BarcodeDetector" in window;
-}
 function useScanner() {
   const video = /* @__PURE__ */ ref(null);
   const active = /* @__PURE__ */ ref(false);
@@ -17061,9 +17057,7 @@ function useScanner() {
   const engine = /* @__PURE__ */ ref("");
   let stream = null;
   let timer = 0;
-  let detector = null;
   let stopped = false;
-  let nativeAt = 0;
   let keepAlive = false;
   let lastHitCode = "";
   let lastSeenAt = 0;
@@ -17081,8 +17075,6 @@ function useScanner() {
     stop();
     onCode(code);
   }
-  const nativeCv = document.createElement("canvas");
-  const nativeCtx = nativeCv.getContext("2d", { willReadFrequently: true });
   async function waitVideo(timeout = 1500) {
     const t0 = Date.now();
     while (!video.value && Date.now() - t0 < timeout) {
@@ -17141,21 +17133,104 @@ function useScanner() {
       return false;
     }
     active.value = true;
-    if (barcodeSupported()) {
-      try {
-        const supported = await window.BarcodeDetector.getSupportedFormats().catch(() => SCAN_FORMATS);
-        const formats = SCAN_FORMATS.filter((f) => supported.includes(f));
-        if (formats.length) {
-          detector = new window.BarcodeDetector({ formats });
-          engine.value = "native";
-          nativeAt = Date.now();
-          tick(onCode);
-          return true;
-        }
-      } catch (e) {
-      }
+    try {
+      await ensureQuagga();
+      engine.value = "quagga";
+      startQuagga(onCode);
+      return true;
+    } catch (e) {
+      return startZXing(onCode);
     }
-    return startZXing(onCode);
+  }
+  let qgLib = null;
+  let qgBusy = false;
+  async function ensureQuagga() {
+    if (qgLib) return qgLib;
+    const mod = await __vitePreload(() => import("./quagga.min-oxokc0e_.js").then((n2) => n2.q), true ? [] : void 0, import.meta.url);
+    qgLib = mod.default || mod;
+    if (!qgLib || typeof qgLib.decodeSingle !== "function") throw new Error("Quagga2 未加载");
+    return qgLib;
+  }
+  const qgCanvas = document.createElement("canvas");
+  const qgCtx = qgCanvas.getContext("2d", { willReadFrequently: true });
+  function decodeQuaggaRegion(el, sx, sy, sw, sh, outW) {
+    if (!qgLib) return Promise.resolve("");
+    const w = Math.max(1, Math.round(outW));
+    const h2 = Math.max(1, Math.round(outW * sh / sw));
+    if (qgCanvas.width !== w || qgCanvas.height !== h2) {
+      qgCanvas.width = w;
+      qgCanvas.height = h2;
+    }
+    try {
+      qgCtx.drawImage(el, sx, sy, sw, sh, 0, 0, w, h2);
+    } catch (e) {
+      return Promise.resolve("");
+    }
+    let src = "";
+    try {
+      src = qgCanvas.toDataURL("image/jpeg", 0.92);
+    } catch (e) {
+      return Promise.resolve("");
+    }
+    return new Promise((resolve2) => {
+      let settled = false;
+      const done = (v) => {
+        if (!settled) {
+          settled = true;
+          resolve2(v || "");
+        }
+      };
+      const timer2 = setTimeout(() => done(""), 2600);
+      try {
+        qgLib.decodeSingle({
+          src,
+          numWorkers: 0,
+          numOfWorkers: 0,
+          locate: true,
+          inputStream: { size: Math.min(1e3, w) },
+          /* 只开 1D 商品码：二维码常是包装上的网址/溯源码，误读会把链接当条码 */
+          decoder: { readers: ["ean_reader", "ean_8_reader", "upc_reader", "upc_e_reader", "code_128_reader", "code_39_reader", "i2of5_reader", "codabar_reader"] }
+        }, (result) => {
+          clearTimeout(timer2);
+          done(result && result.codeResult ? result.codeResult.code : "");
+        });
+      } catch (e) {
+        clearTimeout(timer2);
+        done("");
+      }
+    });
+  }
+  function startQuagga(onCode) {
+    let tick = 0;
+    const grab = async () => {
+      if (stopped || !qgLib) return;
+      const el = video.value;
+      if (!qgBusy && el && el.readyState >= 2 && el.videoWidth) {
+        qgBusy = true;
+        tick++;
+        const vw = el.videoWidth;
+        const vh = el.videoHeight;
+        try {
+          const cw = Math.round(vw * 0.72);
+          const ch = Math.round(vh * 0.5);
+          let code = await decodeQuaggaRegion(el, (vw - cw) / 2, (vh - ch) / 2, cw, ch, 1e3);
+          if (!code && tick % 3 === 0) code = await decodeQuaggaRegion(el, 0, 0, vw, vh, 1e3);
+          if (code) {
+            emitCode(code, onCode);
+            if (!keepAlive) {
+              qgBusy = false;
+              return;
+            }
+          } else if (keepAlive && lastHitCode && Date.now() - lastSeenAt > 1200) {
+            lastHitCode = "";
+          }
+        } finally {
+          qgBusy = false;
+        }
+      }
+      if (!stopped) timer = setTimeout(grab, 120);
+    };
+    grab();
   }
   let zxLib = null;
   let zxReader = null;
@@ -17216,12 +17291,12 @@ function useScanner() {
     try {
       await ensureZXing();
       engine.value = "zxing";
-      let tick2 = 0;
+      let tick = 0;
       const grab = () => {
         if (stopped) return;
         const el = video.value;
         if (el && el.readyState >= 2 && el.videoWidth) {
-          tick2++;
+          tick++;
           const vw = el.videoWidth;
           const vh = el.videoHeight;
           let code = decodeRegion(el, 0, 0, vw, vh, Math.min(1100, vw), false);
@@ -17230,7 +17305,7 @@ function useScanner() {
             const ch = Math.round(vh * 0.42);
             code = decodeRegion(el, (vw - cw) / 2, (vh - ch) / 2, cw, ch, Math.min(1200, cw), false);
           }
-          if (!code && tick2 % 4 === 0) {
+          if (!code && tick % 4 === 0) {
             const cw = Math.round(vw * 0.75);
             const ch = Math.round(vh * 0.55);
             code = decodeRegion(el, (vw - cw) / 2, (vh - ch) / 2, cw, ch, Math.min(1e3, cw), true);
@@ -17258,14 +17333,30 @@ function useScanner() {
       error2.value = "画面还没准备好，等一两秒再点一次。";
       return "";
     }
+    const vw = el.videoWidth;
+    const vh = el.videoHeight;
+    while (qgBusy && stopped === false) await new Promise((r) => setTimeout(r, 60));
+    qgBusy = true;
+    try {
+      await ensureQuagga();
+      const cw = Math.round(vw * 0.9);
+      const ch = Math.round(vh * 0.7);
+      let code = await decodeQuaggaRegion(el, (vw - cw) / 2, (vh - ch) / 2, cw, ch, Math.min(1600, cw));
+      if (!code) code = await decodeQuaggaRegion(el, 0, 0, vw, vh, Math.min(1600, vw));
+      if (code) {
+        stop();
+        return code;
+      }
+    } catch (e) {
+    } finally {
+      qgBusy = false;
+    }
     try {
       await ensureZXing();
     } catch (e) {
       error2.value = "识别组件没加载起来";
       return "";
     }
-    const vw = el.videoWidth;
-    const vh = el.videoHeight;
     const shots = [
       { sx: 0, sy: 0, sw: vw, sh: vh, w: Math.min(1600, vw), inv: false },
       { sx: vw * 0.15, sy: vh * 0.2, sw: vw * 0.7, sh: vh * 0.6, w: Math.min(1400, vw * 0.7), inv: false },
@@ -17280,52 +17371,6 @@ function useScanner() {
     }
     return "";
   }
-  function tick(onCode) {
-    if (stopped) return;
-    const run2 = async () => {
-      if (stopped || !detector) return;
-      if (engine.value === "native" && Date.now() - nativeAt > 3500) {
-        detector = null;
-        if (timer) {
-          clearTimeout(timer);
-          timer = 0;
-        }
-        await startZXing(onCode);
-        return;
-      }
-      try {
-        if (video.value && video.value.readyState >= 2) {
-          let target = video.value;
-          try {
-            const vw = video.value.videoWidth;
-            const vh = video.value.videoHeight;
-            if (vw && vh) {
-              const w = Math.min(1600, vw);
-              const h2 = Math.round(vh * w / vw);
-              if (nativeCv.width !== w) {
-                nativeCv.width = w;
-                nativeCv.height = h2;
-              }
-              nativeCtx.drawImage(video.value, 0, 0, w, h2);
-              target = nativeCv;
-            }
-          } catch (e) {
-          }
-          const codes = await detector.detect(target);
-          const raw = codes && codes[0] && codes[0].rawValue;
-          if (raw) {
-            emitCode(raw, onCode);
-            if (!keepAlive) return;
-          } else if (keepAlive && lastHitCode && Date.now() - lastSeenAt > 1200) {
-            lastHitCode = "";
-          }
-        }
-      } catch (e) {
-      }
-      timer = setTimeout(run2, 240);
-    };
-    run2();
-  }
   function stop() {
     stopped = true;
     active.value = false;
@@ -17334,6 +17379,7 @@ function useScanner() {
       clearTimeout(timer);
       timer = 0;
     }
+    qgBusy = false;
     if (stream) {
       stream.getTracks().forEach((t2) => {
         try {
@@ -17538,7 +17584,7 @@ const _sfc_main$h = {
               last.value ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [
                 createTextVNode("镜头已就绪，继续对准下一件即可")
               ], 64)) : unref(ready) ? (openBlock(), createElementBlock(Fragment, { key: 1 }, [
-                createTextVNode("识别中（" + toDisplayString(unref(engine) === "native" ? "系统识别" : "兼容识别") + "）· 把条码放进框里，光线不足时靠近一点", 1)
+                createTextVNode("识别中（" + toDisplayString(unref(engine) === "quagga" ? "Quagga2 定位识别" : "兼容识别") + "）· 把条码放进框里，光线不足时靠近一点", 1)
               ], 64)) : unref(error2) ? (openBlock(), createElementBlock(Fragment, { key: 2 }, [
                 createTextVNode("摄像头不可用也可以直接手输，不影响开单")
               ], 64)) : (openBlock(), createElementBlock(Fragment, { key: 3 }, [
@@ -17563,7 +17609,7 @@ const _sfc_main$h = {
             _cache[6] || (_cache[6] = createBaseVNode("p", {
               class: "hint",
               style: { "margin": "8px 0 8px" }
-            }, " 支持 EAN-13 / EAN-8 / UPC / Code128 / Code39 / ITF / QR。摄像头只在 https 或本机地址下可用。 ", -1))
+            }, " 支持 EAN-13 / EAN-8 / UPC / Code128 / Code39 / ITF / Codabar。二维码不当商品码，避免把包装网址扫进来。 ", -1))
           ])
         ]),
         _: 1
@@ -17571,7 +17617,7 @@ const _sfc_main$h = {
     };
   }
 };
-const ScanSheet = /* @__PURE__ */ _export_sfc(_sfc_main$h, [["__scopeId", "data-v-049c4748"]]);
+const ScanSheet = /* @__PURE__ */ _export_sfc(_sfc_main$h, [["__scopeId", "data-v-02def4da"]]);
 const _hoisted_1$g = { class: "sell" };
 const _hoisted_2$f = { class: "sell-head" };
 const _hoisted_3$f = { class: "txt" };
@@ -29025,3 +29071,6 @@ window.$tip = tip;
 const isAgentEntry = /agent\.html/i.test(location.pathname);
 if (isAgentEntry) app.mount("#app");
 else installSingleTab(() => app.mount("#app"));
+export {
+  getDefaultExportFromCjs as g
+};
