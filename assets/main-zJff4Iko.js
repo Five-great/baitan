@@ -12627,7 +12627,11 @@ const _sfc_main$m = {
       theme: '<circle cx="12" cy="12" r="8"/><path d="M12 4v16"/>',
       speaker: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>',
       dots: '<circle cx="6" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18" cy="12" r="1.4"/>',
-      qrcode: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v3M14 20h3M20 20h.1"/>'
+      qrcode: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v3M14 20h3M20 20h.1"/>',
+      /* 复制/再来一单：两张叠在一起的单据 */
+      copy: '<rect x="8.5" y="8.5" width="10.5" height="10.5" rx="2"/><path d="M15.5 8.5V6.5A2 2 0 0 0 13.5 4.5h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2"/>',
+      /* 翻转：四角框 + 中间对角线，表示把收款码/内容转给对面看 */
+      flip: '<path d="M4 9V6.5A2.5 2.5 0 0 1 6.5 4H9"/><path d="M15 4h2.5A2.5 2.5 0 0 1 20 6.5V9"/><path d="M20 15v2.5a2.5 2.5 0 0 1-2.5 2.5H15"/><path d="M9 20H6.5A2.5 2.5 0 0 1 4 17.5V15"/><path d="m9.5 9.5 5 5m0-5-5 5"/>'
     };
     return (_ctx, _cache) => {
       return openBlock(), createElementBlock("svg", {
@@ -16012,11 +16016,19 @@ function exportStorePack(storeId) {
     meta: { activeStoreId: scope.store.id, role: ROLE.OWNER, schemaVersion: 1 }
   };
 }
+function agentStoreWithPay(store) {
+  return {
+    ...store,
+    wechatQR: store.wechatQR || state.settings.wechatQR || "",
+    alipayQR: store.alipayQR || state.settings.alipayQR || ""
+  };
+}
 function exportAgentPack(agentId) {
   const agent = state.collections.agents.find((a) => a.id === agentId);
   if (!agent) return null;
   const scope = storeScopeData(agent.parentStoreId);
   if (!scope) return null;
+  const agentStore = agentStoreWithPay(scope.store);
   return {
     app: "stall-assistant",
     version: 3,
@@ -16024,8 +16036,8 @@ function exportAgentPack(agentId) {
     exportedAt: Date.now(),
     from: { deviceId: state.meta.deviceId, storeName: scope.store.name },
     agent: { id: agent.id, name: agent.name, code: agent.code, parentStoreId: agent.parentStoreId },
-    store: scope.store,
-    collections: scope.data,
+    store: agentStore,
+    collections: { ...scope.data, stores: [agentStore] },
     meta: { activeStoreId: agent.parentStoreId, role: ROLE.AGENT, agentId: agent.id, schemaVersion: 1 }
   };
 }
@@ -16035,6 +16047,7 @@ function exportAgentSalesPack() {
   if (!st || !aid) return null;
   const scope = storeScopeData(st.id);
   if (!scope) return null;
+  const agentStore = agentStoreWithPay(scope.store);
   const d = scope.data;
   const mineOrder = (o) => o.agentId === aid;
   const mineOp = (o) => o.operatorId === aid;
@@ -16045,9 +16058,9 @@ function exportAgentSalesPack() {
     exportedAt: Date.now(),
     from: { deviceId: state.meta.deviceId, storeName: st.name },
     agent: agentProfile.value || { id: aid },
-    store: scope.store,
+    store: agentStore,
     collections: {
-      stores: [scope.store],
+      stores: [agentStore],
       warehouses: [],
       products: [],
       categories: [],
@@ -16074,12 +16087,16 @@ async function importStorePack(remote) {
   const localOwner = state.meta.deviceId || "local";
   const packOwner = pack.from && pack.from.deviceId || "pack";
   let c = pack.collections;
+  const ownAgentId = pack.agent && pack.agent.id || pack.meta && pack.meta.agentId || "";
   if (isAgentPack) {
     c = {
       ...c,
       warehouses: [],
       stores: (c.stores || []).map((st) => ({ ...st, warehouseIds: [] })),
-      stocks: (c.stocks || []).filter((s) => s.locType === "store")
+      stocks: (c.stocks || []).filter((s) => s.locType === "store"),
+      /* 【代理隔离】-代理之间各自独立：每个代理包只留它自己这一条身份，
+         老包里把整店所有代理一起带进来的，导入时也在这里剥掉，不能互相切换 */
+      agents: ownAgentId ? (c.agents || []).filter((a) => a.id === ownAgentId) : []
     };
   } else {
     const remap = {};
@@ -16132,6 +16149,9 @@ async function importStorePack(remote) {
     { fromRole: ROLE.OWNER }
   );
   state.collections = merged.collections;
+  if (isAgentPack) {
+    state.collections.agents = ownAgentId ? state.collections.agents.filter((a) => a.id === ownAgentId) : [];
+  }
   const storeNow = state.collections.stores.find((x) => x.id === rid);
   if (storeNow) {
     if (existing) {
@@ -17463,6 +17483,7 @@ const _sfc_main$f = {
       const p2 = products.value.find((x) => x.id === it.productId);
       return s + (p2 ? p2.price * it.qty : 0);
     }, 0)));
+    const cartQty = computed(() => r2(cart.value.reduce((sum, it) => sum + r2(it.qty), 0)));
     const total = computed(() => discount.value > 0 ? r2(origTotal.value * discount.value / 10) : origTotal.value);
     const roundOffOn = /* @__PURE__ */ ref(false);
     const tail = computed(() => r2(total.value - Math.floor(total.value)));
@@ -17972,7 +17993,7 @@ const _sfc_main$f = {
                 createBaseVNode("div", _hoisted_53$4, [
                   createBaseVNode("b", _hoisted_54$4, toDisplayString(unref(money)(step.value === "pick" ? total.value : payable.value)), 1),
                   createBaseVNode("span", null, [
-                    createTextVNode(toDisplayString(cart.value.length) + " 行商品 ", 1),
+                    createTextVNode(toDisplayString(cart.value.length) + " 行 · 共 " + toDisplayString(cartQty.value) + " 件 ", 1),
                     step.value === "pay" && payMethod.value === "cash" && change.value > 0 ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [
                       createTextVNode(" · 找零 " + toDisplayString(unref(money)(change.value)), 1)
                     ], 64)) : createCommentVNode("", true)
@@ -18037,21 +18058,12 @@ const _sfc_main$f = {
                         class: "icon-btn",
                         "aria-label": "旋转二维码",
                         onClick: _cache[16] || (_cache[16] = ($event) => qrRotate.value = qrRotate.value ? 0 : 180)
-                      }, [..._cache[32] || (_cache[32] = [
-                        createBaseVNode("svg", {
-                          width: "18",
-                          height: "18",
-                          viewBox: "0 0 24 24",
-                          fill: "none",
-                          stroke: "currentColor",
-                          "stroke-width": "2",
-                          "stroke-linecap": "round",
-                          "stroke-linejoin": "round"
-                        }, [
-                          createBaseVNode("path", { d: "M21 12a9 9 0 1 1-9-9" }),
-                          createBaseVNode("path", { d: "M21 3v9h-9" })
-                        ], -1)
-                      ])]),
+                      }, [
+                        createVNode(_sfc_main$m, {
+                          name: "flip",
+                          size: 18
+                        })
+                      ]),
                       createBaseVNode("button", {
                         class: "icon-btn",
                         "aria-label": "关闭",
@@ -18069,7 +18081,7 @@ const _sfc_main$f = {
                     style: normalizeStyle({ transform: "rotate(" + qrRotate.value + "deg)" })
                   }, [
                     createBaseVNode("div", _hoisted_59$4, [
-                      _cache[33] || (_cache[33] = createTextVNode("应付 ", -1)),
+                      _cache[32] || (_cache[32] = createTextVNode("应付 ", -1)),
                       createBaseVNode("b", _hoisted_60$4, toDisplayString(unref(money)(payable.value)), 1)
                     ]),
                     createBaseVNode("div", _hoisted_61$4, [
@@ -18112,7 +18124,7 @@ const _sfc_main$f = {
     };
   }
 };
-const SellSheet = /* @__PURE__ */ _export_sfc(_sfc_main$f, [["__scopeId", "data-v-4a5f0cdc"]]);
+const SellSheet = /* @__PURE__ */ _export_sfc(_sfc_main$f, [["__scopeId", "data-v-837326b4"]]);
 const nav = /* @__PURE__ */ reactive({
   view: "home",
   /* 【跳转】-别的页面要"直接打开某一单/某一条仓库流水"时，把目标 id 放这儿，
@@ -18165,10 +18177,17 @@ function goOrder(orderId) {
   nav.pendingOrderId = orderId;
   go("orders");
 }
+function goWarehouses() {
+  return withBusy("正在打开仓库…", async () => {
+    go("warehouses");
+  }, { immediate: true, min: 320 });
+}
 function goWarehouse(warehouseId, opId) {
-  nav.pendingWarehouseId = warehouseId || "";
-  nav.pendingOpId = opId || "";
-  go("warehouses");
+  return withBusy("正在定位仓库…", async () => {
+    nav.pendingWarehouseId = warehouseId || "";
+    nav.pendingOpId = opId || "";
+    go("warehouses");
+  }, { immediate: true, min: 320 });
 }
 const _hoisted_1$e = { class: "page" };
 const _hoisted_2$d = { class: "topbar" };
@@ -18439,7 +18458,7 @@ const _sfc_main$e = {
             createBaseVNode("button", {
               class: "hint",
               style: { "color": "var(--jade)" },
-              onClick: _cache[3] || (_cache[3] = ($event) => unref(go)("warehouses"))
+              onClick: _cache[3] || (_cache[3] = (...args) => unref(goWarehouses) && unref(goWarehouses)(...args))
             }, "去调拨")
           ]),
           createBaseVNode("div", _hoisted_24$9, [
@@ -18447,7 +18466,7 @@ const _sfc_main$e = {
               return openBlock(), createElementBlock("button", {
                 key: r.product.id,
                 class: "row",
-                onClick: _cache[4] || (_cache[4] = ($event) => unref(go)("warehouses"))
+                onClick: _cache[4] || (_cache[4] = (...args) => unref(goWarehouses) && unref(goWarehouses)(...args))
               }, [
                 createBaseVNode("span", _hoisted_25$9, [
                   createVNode(_sfc_main$m, {
@@ -18531,7 +18550,7 @@ const _sfc_main$e = {
     };
   }
 };
-const HomeView = /* @__PURE__ */ _export_sfc(_sfc_main$e, [["__scopeId", "data-v-87bcc694"]]);
+const HomeView = /* @__PURE__ */ _export_sfc(_sfc_main$e, [["__scopeId", "data-v-0fef61ee"]]);
 const _hoisted_1$d = ["title"];
 const _sfc_main$d = {
   __name: "MoneyText",
@@ -20687,7 +20706,7 @@ const _sfc_main$7 = {
           key: 0,
           class: "card row wh-entry",
           style: { "width": "100%" },
-          onClick: _cache[2] || (_cache[2] = ($event) => unref(go)("warehouses"))
+          onClick: _cache[2] || (_cache[2] = (...args) => unref(goWarehouses) && unref(goWarehouses)(...args))
         }, [
           createBaseVNode("span", _hoisted_4$7, [
             createVNode(_sfc_main$m, {
@@ -20734,7 +20753,7 @@ const _sfc_main$7 = {
           key: 3,
           class: "banner jade",
           style: { "margin-top": "12px" },
-          onClick: _cache[3] || (_cache[3] = ($event) => unref(go)("warehouses"))
+          onClick: _cache[3] || (_cache[3] = (...args) => unref(goWarehouses) && unref(goWarehouses)(...args))
         }, [
           createVNode(_sfc_main$m, {
             name: "layers",
@@ -21650,9 +21669,10 @@ const _sfc_main$6 = {
           }, null, 8, ["name"])
         ]),
         sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_48$3, [..._cache[47] || (_cache[47] = [
-          createStaticVNode('<div class="how" data-v-df85efca><b data-v-df85efca>1</b><span data-v-df85efca>买回来的货先进仓库，「入库」是在原有数量上累加，「盘点」是直接改成你数出来的数。</span></div><div class="how" data-v-df85efca><b data-v-df85efca>2</b><span data-v-df85efca>出摊前把今天要卖的量「发放」到店铺，店内库存才是能卖的量。</span></div><div class="how" data-v-df85efca><b data-v-df85efca>3</b><span data-v-df85efca>调拨是整笔成功的：仓里不够就整笔拒绝，不会半路少货。</span></div><div class="how" data-v-df85efca><b data-v-df85efca>4</b><span data-v-df85efca>一家店的商品总数 = 店内 + 已挂载仓库的货；没挂载的仓库，里面的同款货不算给这家店。</span></div>', 4)
+          createStaticVNode('<div class="how" data-v-aa576c98><b data-v-aa576c98>1</b><span data-v-aa576c98>买回来的货先进仓库，「入库」是在原有数量上累加，「盘点」是直接改成你数出来的数。</span></div><div class="how" data-v-aa576c98><b data-v-aa576c98>2</b><span data-v-aa576c98>出摊前把今天要卖的量「发放」到店铺，店内库存才是能卖的量。</span></div><div class="how" data-v-aa576c98><b data-v-aa576c98>3</b><span data-v-aa576c98>调拨是整笔成功的：仓里不够就整笔拒绝，不会半路少货。</span></div><div class="how" data-v-aa576c98><b data-v-aa576c98>4</b><span data-v-aa576c98>一家店的商品总数 = 店内 + 已挂载仓库的货；没挂载的仓库，里面的同款货不算给这家店。</span></div>', 4)
         ])])) : createCommentVNode("", true),
         createVNode(_component_var_popup, {
+          class: "wh-sheet",
           show: !!openOp.value,
           position: "bottom",
           "onUpdate:show": _cache[4] || (_cache[4] = (v) => {
@@ -21729,6 +21749,7 @@ const _sfc_main$6 = {
           _: 1
         }, 8, ["show"]),
         createVNode(_component_var_popup, {
+          class: "wh-sheet",
           show: !!detailId.value,
           position: "bottom",
           "onUpdate:show": _cache[10] || (_cache[10] = (v) => {
@@ -21884,6 +21905,7 @@ const _sfc_main$6 = {
           _: 1
         }, 8, ["show"]),
         createVNode(_component_var_popup, {
+          class: "wh-sheet",
           show: moreShow.value,
           position: "bottom",
           "onUpdate:show": _cache[14] || (_cache[14] = (v) => moreShow.value = v)
@@ -21955,6 +21977,7 @@ const _sfc_main$6 = {
           "default-loc": splitLoc.value
         }, null, 8, ["show", "default-loc"]),
         createVNode(_component_var_popup, {
+          class: "wh-sheet",
           show: jobShow.value,
           position: "bottom",
           "onUpdate:show": _cache[20] || (_cache[20] = (v) => jobShow.value = v)
@@ -22081,6 +22104,7 @@ const _sfc_main$6 = {
           _: 1
         }, 8, ["show"]),
         createVNode(_component_var_popup, {
+          class: "wh-sheet",
           show: newWh.value.show,
           position: "bottom",
           "onUpdate:show": _cache[24] || (_cache[24] = (v) => newWh.value.show = v)
@@ -22140,7 +22164,7 @@ const _sfc_main$6 = {
     };
   }
 };
-const WarehousesView = /* @__PURE__ */ _export_sfc(_sfc_main$6, [["__scopeId", "data-v-df85efca"]]);
+const WarehousesView = /* @__PURE__ */ _export_sfc(_sfc_main$6, [["__scopeId", "data-v-aa576c98"]]);
 const _hoisted_1$5 = { class: "page" };
 const _hoisted_2$5 = { class: "topbar" };
 const _hoisted_3$5 = { class: "sub" };
@@ -22936,7 +22960,7 @@ const _sfc_main$5 = {
                   }, [
                     createBaseVNode("span", _hoisted_78$2, [
                       createVNode(_sfc_main$m, {
-                        name: "redo",
+                        name: "copy",
                         size: 17
                       })
                     ]),
@@ -23121,7 +23145,7 @@ const _sfc_main$5 = {
     };
   }
 };
-const OrdersView = /* @__PURE__ */ _export_sfc(_sfc_main$5, [["__scopeId", "data-v-b7bec0ef"]]);
+const OrdersView = /* @__PURE__ */ _export_sfc(_sfc_main$5, [["__scopeId", "data-v-9fb67d3a"]]);
 const EXPENSE_KINDS = [
   { key: "stall", name: "摊位费", hint: "场地租金、管理费、进场费" },
   { key: "freight", name: "运费", hint: "进货运费、快递、搬运" },
