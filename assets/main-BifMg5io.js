@@ -14996,7 +14996,7 @@ async function loadRowCollection(name2) {
 }
 let flushSeq = 0;
 const WRITE_CHUNK = 1200;
-const SHARD_WRITE_CHUNK = 300;
+const SHARD_WRITE_CHUNK = 1500;
 async function writePairsChunked(pairs, chunk = WRITE_CHUNK) {
   if (!pairs || !pairs.length) return;
   for (let i = 0; i < pairs.length; i += chunk) {
@@ -17729,6 +17729,7 @@ const __vitePreload = function preload(baseModule, deps, importerUrl) {
     return baseModule().catch(handlePreloadError);
   });
 };
+const WASM_FORMATS = ["EAN13", "EAN8", "UPCA", "UPCE", "Code128", "Code39", "ITF", "Codabar", "DataBar"];
 function cleanScan(raw) {
   let v = String(raw == null ? "" : raw).replace(/[０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 65248)).replace(/[\s\u200b-\u200d\ufeff]/g, "");
   if (!v) return "";
@@ -17738,6 +17739,54 @@ function cleanScan(raw) {
   if (!/^[0-9A-Za-z\-\.\/\+\$%]+$/.test(v)) return "";
   return v;
 }
+const SCAN_FLAG_KEY = "stall3.scan.enabled";
+const scanEnabled = /* @__PURE__ */ ref(true);
+let consoleInstalled = false;
+function readScanFlag() {
+  try {
+    const raw = localStorage.getItem(SCAN_FLAG_KEY);
+    return raw === null ? true : raw !== "0";
+  } catch (e) {
+    return true;
+  }
+}
+scanEnabled.value = readScanFlag();
+function setScanEnabled(on) {
+  const next = !!on;
+  scanEnabled.value = next;
+  try {
+    localStorage.setItem(SCAN_FLAG_KEY, next ? "1" : "0");
+  } catch (e) {
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("stall:scan-toggle", { detail: { enabled: next } }));
+  }
+  return next;
+}
+function installScanConsole() {
+  if (consoleInstalled || typeof window === "undefined") return;
+  consoleInstalled = true;
+  window.stallScan = {
+    get enabled() {
+      return scanEnabled.value;
+    },
+    enable() {
+      return setScanEnabled(true);
+    },
+    disable() {
+      return setScanEnabled(false);
+    },
+    set(v) {
+      return setScanEnabled(v);
+    },
+    status() {
+      const s = scanEnabled.value ? "开启" : "关闭";
+      console.info("[扫码] 当前：" + s + "（stallScan.enable() / stallScan.disable()）");
+      return scanEnabled.value;
+    }
+  };
+}
+installScanConsole();
 function useScanner() {
   const video = /* @__PURE__ */ ref(null);
   const active = /* @__PURE__ */ ref(false);
@@ -17750,6 +17799,10 @@ function useScanner() {
   let keepAlive = false;
   let lastHitCode = "";
   let lastSeenAt = 0;
+  let focusModes = [];
+  let lastFocusAt = 0;
+  let missFrames = 0;
+  let loggedCamera = false;
   function emitCode(raw, onCode) {
     const code = cleanScan(raw);
     if (!code) return;
@@ -17771,6 +17824,38 @@ function useScanner() {
     }
     return video.value;
   }
+  async function openStream() {
+    const tries = [
+      {
+        audio: false,
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 30 }
+        }
+      },
+      {
+        audio: false,
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30 }
+        }
+      }
+    ];
+    let lastErr = null;
+    for (const constraints of tries) {
+      try {
+        return await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (e) {
+        lastErr = e;
+        if (e && (e.name === "NotAllowedError" || e.name === "NotFoundError")) break;
+      }
+    }
+    throw lastErr || new Error("摄像头打不开");
+  }
   async function attach() {
     const el = await waitVideo();
     if (!el) return null;
@@ -17779,38 +17864,68 @@ function useScanner() {
       await el.play();
     } catch (e) {
     }
-    try {
-      const track2 = stream.getVideoTracks()[0];
-      if (track2 && track2.applyConstraints) {
-        await track2.applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {
-        });
-      }
-    } catch (e) {
-    }
     el.onloadedmetadata = () => {
       ready.value = true;
     };
     if (el.readyState >= 1) ready.value = true;
     return el;
   }
+  async function applyAutoFocus() {
+    try {
+      const track2 = stream && stream.getVideoTracks()[0];
+      if (!track2 || !track2.getCapabilities) return;
+      const caps = track2.getCapabilities();
+      focusModes = Array.isArray(caps.focusMode) ? caps.focusMode : [];
+      if (focusModes.includes("continuous")) {
+        await track2.applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {
+        });
+      }
+      if (!loggedCamera) {
+        loggedCamera = true;
+        const s = track2.getSettings ? track2.getSettings() : {};
+        console.info("[扫码] 实际采集 " + (s.width || "?") + "×" + (s.height || "?") + " @" + (s.frameRate || "?") + "fps，对焦能力：" + (focusModes.join(",") || "未开放"));
+      }
+    } catch (e) {
+    }
+  }
+  async function triggerFocusOnce() {
+    const now2 = Date.now();
+    if (!focusModes.includes("single-shot") || now2 - lastFocusAt < 2500) return;
+    lastFocusAt = now2;
+    try {
+      const track2 = stream && stream.getVideoTracks()[0];
+      if (!track2) return;
+      await track2.applyConstraints({ advanced: [{ focusMode: "single-shot" }] }).catch(() => {
+      });
+      setTimeout(() => {
+        if (track2 && focusModes.includes("continuous")) {
+          track2.applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {
+          });
+        }
+      }, 600);
+    } catch (e) {
+    }
+  }
   async function start(onCode, opts = {}) {
     keepAlive = !!opts.continuous;
     lastHitCode = "";
     lastSeenAt = 0;
+    missFrames = 0;
+    lastFocusAt = 0;
+    loggedCamera = false;
     error2.value = "";
     stopped = false;
     engine.value = "";
+    if (!scanEnabled.value) {
+      error2.value = "扫码已关闭（控制台执行 stallScan.enable() 可开启），也可以直接手输条码。";
+      return false;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      error2.value = "当前浏览器不支持摄像头调用（需要 https 或 localhost），可以手输条码。";
+      return false;
+    }
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        /* 要高清一点：800px 的帧对 13 位条码太糊，稍微离远就解不出来 */
-        video: {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          focusMode: { ideal: "continuous" }
-        },
-        audio: false
-      });
+      stream = await openStream();
     } catch (e) {
       error2.value = e && e.name === "NotAllowedError" ? "摄像头权限被拒绝：到浏览器设置里允许本页使用摄像头再试。" : e && e.name === "NotFoundError" ? "没找到可用的摄像头，改用手输条码。" : "摄像头打不开（" + (e && e.message ? e.message : "未知") + "），可以手输条码。";
       return false;
@@ -17822,108 +17937,267 @@ function useScanner() {
       return false;
     }
     active.value = true;
+    await applyAutoFocus();
     try {
-      await ensureQuagga();
-      engine.value = "quagga";
-      startQuagga(onCode);
+      await ensureZXingWasm();
+      engine.value = "wasm";
+      startZXingWasm(onCode);
       return true;
     } catch (e) {
-      return startZXing(onCode);
+      console.warn("[扫码] zxing-wasm 加载失败，退回 @zxing/library", e);
+      return startZXingLegacy(onCode);
     }
   }
-  let qgLib = null;
-  let qgBusy = false;
-  async function ensureQuagga() {
-    if (qgLib) return qgLib;
-    const mod = await __vitePreload(() => import("./quagga.min-D__CmqCQ.js").then((n2) => n2.q), true ? [] : void 0, import.meta.url);
-    qgLib = mod.default || mod;
-    if (!qgLib || typeof qgLib.decodeSingle !== "function") throw new Error("Quagga2 未加载");
-    return qgLib;
-  }
-  const qgCanvas = document.createElement("canvas");
-  const qgCtx = qgCanvas.getContext("2d", { willReadFrequently: true });
-  function decodeQuaggaRegion(el, sx, sy, sw, sh, outW) {
-    if (!qgLib) return Promise.resolve("");
-    const w = Math.max(1, Math.round(outW));
-    const h2 = Math.max(1, Math.round(outW * sh / sw));
-    if (qgCanvas.width !== w || qgCanvas.height !== h2) {
-      qgCanvas.width = w;
-      qgCanvas.height = h2;
-    }
-    try {
-      qgCtx.drawImage(el, sx, sy, sw, sh, 0, 0, w, h2);
-    } catch (e) {
-      return Promise.resolve("");
-    }
-    let src = "";
-    try {
-      src = qgCanvas.toDataURL("image/jpeg", 0.92);
-    } catch (e) {
-      return Promise.resolve("");
-    }
-    return new Promise((resolve2) => {
-      let settled = false;
-      const done = (v) => {
-        if (!settled) {
-          settled = true;
-          resolve2(v || "");
+  let wasmLib = null;
+  let wasmReady = null;
+  let wasmUrl = "";
+  async function ensureZXingWasm() {
+    if (wasmReady) return wasmReady;
+    wasmReady = (async () => {
+      const [mod, wasmMod] = await Promise.all([
+        __vitePreload(() => import("./index-XbMY1Av-.js"), true ? [] : void 0, import.meta.url),
+        __vitePreload(() => import("./zxing_reader-BiAwzH3O.js"), true ? [] : void 0, import.meta.url)
+      ]);
+      wasmUrl = (wasmMod && (wasmMod.default || wasmMod)) + "";
+      const prepareZXingModule = mod.prepareZXingModule;
+      prepareZXingModule({
+        overrides: {
+          /* 覆盖默认的 jsDelivr CDN 地址，改成同站点打包出来的 wasm */
+          locateFile: (path, prefix) => {
+            if (String(path).endsWith(".wasm")) {
+              try {
+                return new URL(wasmUrl, document.baseURI).href;
+              } catch (e) {
+                return wasmUrl;
+              }
+            }
+            return prefix + path;
+          }
         }
-      };
-      const timer2 = setTimeout(() => done(""), 2600);
-      try {
-        qgLib.decodeSingle({
-          src,
-          numWorkers: 0,
-          numOfWorkers: 0,
-          locate: true,
-          inputStream: { size: Math.min(1e3, w) },
-          /* 只开 1D 商品码：二维码常是包装上的网址/溯源码，误读会把链接当条码 */
-          decoder: { readers: ["ean_reader", "ean_8_reader", "upc_reader", "upc_e_reader", "code_128_reader", "code_39_reader", "i2of5_reader", "codabar_reader"] }
-        }, (result) => {
-          clearTimeout(timer2);
-          done(result && result.codeResult ? result.codeResult.code : "");
-        });
-      } catch (e) {
-        clearTimeout(timer2);
-        done("");
-      }
+      });
+      wasmLib = mod;
+      return mod;
+    })().catch((e) => {
+      wasmReady = null;
+      throw e;
     });
+    return wasmReady;
   }
-  function startQuagga(onCode) {
+  const grabCanvas = document.createElement("canvas");
+  const grabCtx = grabCanvas.getContext("2d", { willReadFrequently: true });
+  const procCanvas = document.createElement("canvas");
+  const procCtx = procCanvas.getContext("2d", { willReadFrequently: true });
+  const scaleCanvas = document.createElement("canvas");
+  const scaleCtx = scaleCanvas.getContext("2d", { willReadFrequently: true });
+  function grabFrame(el, ratioW, ratioH, outW) {
+    if (!el || !el.videoWidth || !el.videoHeight) return null;
+    const vw = el.videoWidth;
+    const vh = el.videoHeight;
+    const cw = Math.max(1, Math.round(vw * ratioW));
+    const ch = Math.max(1, Math.round(vh * ratioH));
+    const sx = Math.round((vw - cw) / 2);
+    const sy = Math.round((vh - ch) / 2);
+    const w = Math.max(1, Math.round(outW));
+    const h2 = Math.max(1, Math.round(w * ch / cw));
+    if (grabCanvas.width !== w || grabCanvas.height !== h2) {
+      grabCanvas.width = w;
+      grabCanvas.height = h2;
+    }
+    try {
+      grabCtx.drawImage(el, sx, sy, cw, ch, 0, 0, w, h2);
+      return grabCtx.getImageData(0, 0, w, h2);
+    } catch (e) {
+      return null;
+    }
+  }
+  const cloneImage = (img) => {
+    if (!img) return null;
+    try {
+      const out = procCtx.createImageData(img.width, img.height);
+      out.data.set(img.data);
+      return out;
+    } catch (e) {
+      return null;
+    }
+  };
+  function toGray(img) {
+    const out = cloneImage(img);
+    if (!out) return null;
+    const d = out.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const v = d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29 >> 8;
+      d[i] = d[i + 1] = d[i + 2] = v;
+    }
+    return out;
+  }
+  function stretchContrast(img) {
+    const out = cloneImage(img);
+    if (!out) return null;
+    const d = out.data;
+    let min = 255;
+    let max = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      const v = d[i];
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    if (max <= min) return out;
+    const k = 255 / (max - min);
+    for (let i = 0; i < d.length; i += 4) {
+      const v = Math.max(0, Math.min(255, Math.round((d[i] - min) * k)));
+      d[i] = d[i + 1] = d[i + 2] = v;
+    }
+    return out;
+  }
+  function sharpen(img, amount = 0.6) {
+    const out = cloneImage(img);
+    if (!out) return null;
+    const src = img.data;
+    const d = out.data;
+    const w = img.width;
+    const h2 = img.height;
+    const k = amount;
+    const center = 1 + 4 * k;
+    for (let y = 0; y < h2; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        const l = ((x > 0 ? src[i - 4] : src[i]) + (x < w - 1 ? src[i + 4] : src[i]) + (y > 0 ? src[i - w * 4] : src[i]) + (y < h2 - 1 ? src[i + w * 4] : src[i])) * k;
+        const v = Math.max(0, Math.min(255, Math.round(src[i] * center - l)));
+        d[i] = d[i + 1] = d[i + 2] = v;
+        d[i + 3] = 255;
+      }
+    }
+    return out;
+  }
+  function upscale(img, factor = 1.6) {
+    if (!img) return null;
+    const w = Math.round(img.width * factor);
+    const h2 = Math.round(img.height * factor);
+    if (scaleCanvas.width !== img.width || scaleCanvas.height !== img.height) {
+      scaleCanvas.width = img.width;
+      scaleCanvas.height = img.height;
+    }
+    procCanvas.width = img.width;
+    procCanvas.height = img.height;
+    procCtx.putImageData(img, 0, 0);
+    scaleCanvas.width = w;
+    scaleCanvas.height = h2;
+    scaleCtx.imageSmoothingEnabled = true;
+    scaleCtx.clearRect(0, 0, w, h2);
+    scaleCtx.drawImage(procCanvas, 0, 0, w, h2);
+    try {
+      return scaleCtx.getImageData(0, 0, w, h2);
+    } catch (e) {
+      return null;
+    }
+  }
+  function rotate180(img) {
+    if (!img) return null;
+    procCanvas.width = img.width;
+    procCanvas.height = img.height;
+    procCtx.putImageData(img, 0, 0);
+    scaleCanvas.width = img.width;
+    scaleCanvas.height = img.height;
+    scaleCtx.save();
+    scaleCtx.translate(img.width, img.height);
+    scaleCtx.rotate(Math.PI);
+    scaleCtx.drawImage(procCanvas, 0, 0);
+    scaleCtx.restore();
+    try {
+      return scaleCtx.getImageData(0, 0, img.width, img.height);
+    } catch (e) {
+      return null;
+    }
+  }
+  async function readWasm(img, binarizer) {
+    if (!img || !wasmLib || !wasmLib.readBarcodes) return "";
+    try {
+      const results = await wasmLib.readBarcodes(img, {
+        formats: WASM_FORMATS,
+        tryHarder: true,
+        tryRotate: true,
+        // 90 / 180 / 270 都试
+        tryInvert: true,
+        // 深底浅码 / 屏幕上反色码
+        tryDownscale: true,
+        // 大图自动降采样，兼顾速度
+        tryDenoise: false,
+        // 一维码用不上，开着只会慢
+        minLineCount: 1,
+        // 弱码只要求一条扫描线一致；EAN/UPC 仍有校验位兜底
+        maxNumberOfSymbols: 1,
+        eanAddOnSymbol: "Ignore",
+        // 不读 EAN-2/5 附加码，避免把附加码拼进条码
+        textMode: "HRI",
+        binarizer
+      });
+      const hit = (results || []).find((r) => r && r.isValid !== false && String(r.text || "").trim());
+      return hit ? String(hit.text).trim() : "";
+    } catch (e) {
+      return "";
+    }
+  }
+  async function decodeWasmChannels(base, opts = {}) {
+    if (!base) return "";
+    const still = !!opts.still;
+    const gray = toGray(base);
+    if (!gray) return "";
+    const stretched = stretchContrast(gray);
+    let code = await readWasm(base, "LocalAverage");
+    if (code) return code;
+    code = await readWasm(stretched, "LocalAverage");
+    if (code) return code;
+    code = await readWasm(stretched, "GlobalHistogram");
+    if (code) return code;
+    const sharp = sharpen(stretched, still ? 0.8 : 0.6);
+    code = await readWasm(sharp, "LocalAverage");
+    if (code) return code;
+    if (!still) {
+      const up = upscale(stretched, 1.6);
+      code = await readWasm(up, "LocalAverage");
+      if (code) return code;
+    }
+    const rot = rotate180(stretched);
+    code = await readWasm(rot, "LocalAverage");
+    return code;
+  }
+  function startZXingWasm(onCode) {
     let tick = 0;
     const grab = async () => {
-      if (stopped || !qgLib) return;
+      if (stopped) return;
       const el = video.value;
-      if (!qgBusy && el && el.readyState >= 2 && el.videoWidth) {
-        qgBusy = true;
+      if (el && el.readyState >= 2 && el.videoWidth) {
         tick++;
-        const vw = el.videoWidth;
-        const vh = el.videoHeight;
-        try {
-          const cw = Math.round(vw * 0.72);
-          const ch = Math.round(vh * 0.5);
-          let code = await decodeQuaggaRegion(el, (vw - cw) / 2, (vh - ch) / 2, cw, ch, 1e3);
-          if (!code && tick % 3 === 0) code = await decodeQuaggaRegion(el, 0, 0, vw, vh, 1e3);
-          if (code) {
-            emitCode(code, onCode);
-            if (!keepAlive) {
-              qgBusy = false;
-              return;
-            }
-          } else if (keepAlive && lastHitCode && Date.now() - lastSeenAt > 1200) {
-            lastHitCode = "";
+        const base = tick % 3 === 0 ? grabFrame(el, 0.6, 0.36, 1600) : grabFrame(el, 0.96, 0.6, 1400);
+        let code = "";
+        if (base) {
+          try {
+            code = await decodeWasmChannels(base);
+          } catch (e) {
+            code = "";
           }
-        } finally {
-          qgBusy = false;
+        }
+        if (stopped) return;
+        if (code) {
+          missFrames = 0;
+          emitCode(code, onCode);
+          if (!keepAlive) return;
+        } else {
+          missFrames++;
+          if (missFrames >= 18) {
+            triggerFocusOnce();
+            missFrames = 0;
+          }
+          if (keepAlive && lastHitCode && Date.now() - lastSeenAt > 1200) lastHitCode = "";
         }
       }
-      if (!stopped) timer = setTimeout(grab, 120);
+      if (!stopped) timer = setTimeout(grab, 140);
     };
     grab();
   }
   let zxLib = null;
   let zxReader = null;
-  async function ensureZXing() {
+  async function ensureZXingLegacy() {
     if (zxReader) return zxReader;
     const zx = await __vitePreload(() => import("./index-CI-TdRA4.js"), true ? [] : void 0, import.meta.url);
     zxLib = zx;
@@ -17946,7 +18220,7 @@ function useScanner() {
   }
   const work = document.createElement("canvas");
   const workCtx = work.getContext("2d", { willReadFrequently: true });
-  function decodeRegion(el, sx, sy, sw, sh, outW, invert) {
+  function decodeLegacyRegion(el, sx, sy, sw, sh, outW, invert) {
     if (!zxLib || !zxReader) return "";
     const w = Math.max(1, Math.round(outW));
     const h2 = Math.max(1, Math.round(outW * sh / sw));
@@ -17976,9 +18250,9 @@ function useScanner() {
     }
     return "";
   }
-  async function startZXing(onCode) {
+  async function startZXingLegacy(onCode) {
     try {
-      await ensureZXing();
+      await ensureZXingLegacy();
       engine.value = "zxing";
       let tick = 0;
       const grab = () => {
@@ -17988,16 +18262,16 @@ function useScanner() {
           tick++;
           const vw = el.videoWidth;
           const vh = el.videoHeight;
-          let code = decodeRegion(el, 0, 0, vw, vh, Math.min(1100, vw), false);
+          let code = decodeLegacyRegion(el, 0, 0, vw, vh, Math.min(1100, vw), false);
           if (!code) {
             const cw = Math.round(vw * 0.62);
             const ch = Math.round(vh * 0.42);
-            code = decodeRegion(el, (vw - cw) / 2, (vh - ch) / 2, cw, ch, Math.min(1200, cw), false);
+            code = decodeLegacyRegion(el, (vw - cw) / 2, (vh - ch) / 2, cw, ch, Math.min(1200, cw), false);
           }
           if (!code && tick % 4 === 0) {
             const cw = Math.round(vw * 0.75);
             const ch = Math.round(vh * 0.55);
-            code = decodeRegion(el, (vw - cw) / 2, (vh - ch) / 2, cw, ch, Math.min(1e3, cw), true);
+            code = decodeLegacyRegion(el, (vw - cw) / 2, (vh - ch) / 2, cw, ch, Math.min(1e3, cw), true);
           }
           if (code) {
             emitCode(code, onCode);
@@ -18017,46 +18291,37 @@ function useScanner() {
     }
   }
   async function captureDecode() {
+    if (!scanEnabled.value) {
+      error2.value = "扫码已关闭（控制台执行 stallScan.enable() 可开启）。";
+      return "";
+    }
     const el = video.value;
     if (!el || el.readyState < 2 || !el.videoWidth) {
       error2.value = "画面还没准备好，等一两秒再点一次。";
       return "";
     }
-    const vw = el.videoWidth;
-    const vh = el.videoHeight;
-    while (qgBusy && stopped === false) await new Promise((r) => setTimeout(r, 60));
-    qgBusy = true;
+    const base = grabFrame(el, 0.96, 0.72, Math.min(2e3, el.videoWidth));
+    if (!base) return "";
     try {
-      await ensureQuagga();
-      const cw = Math.round(vw * 0.9);
-      const ch = Math.round(vh * 0.7);
-      let code = await decodeQuaggaRegion(el, (vw - cw) / 2, (vh - ch) / 2, cw, ch, Math.min(1600, cw));
-      if (!code) code = await decodeQuaggaRegion(el, 0, 0, vw, vh, Math.min(1600, vw));
-      if (code) {
-        stop();
-        return code;
-      }
+      await ensureZXingWasm();
+      const code = await decodeWasmChannels(base, { still: true });
+      if (code) return code;
     } catch (e) {
-    } finally {
-      qgBusy = false;
     }
     try {
-      await ensureZXing();
-    } catch (e) {
-      error2.value = "识别组件没加载起来";
-      return "";
-    }
-    const shots = [
-      { sx: 0, sy: 0, sw: vw, sh: vh, w: Math.min(1600, vw), inv: false },
-      { sx: vw * 0.15, sy: vh * 0.2, sw: vw * 0.7, sh: vh * 0.6, w: Math.min(1400, vw * 0.7), inv: false },
-      { sx: 0, sy: 0, sw: vw, sh: vh, w: Math.min(1600, vw), inv: true }
-    ];
-    for (const sh of shots) {
-      const code = decodeRegion(el, sh.sx, sh.sy, sh.sw, sh.sh, sh.w, sh.inv);
-      if (code) {
-        stop();
-        return code;
+      await ensureZXingLegacy();
+      const vw = el.videoWidth;
+      const vh = el.videoHeight;
+      const shots = [
+        { sx: 0, sy: 0, sw: vw, sh: vh, w: Math.min(1600, vw), inv: false },
+        { sx: vw * 0.15, sy: vh * 0.2, sw: vw * 0.7, sh: vh * 0.6, w: Math.min(1400, vw * 0.7), inv: false },
+        { sx: 0, sy: 0, sw: vw, sh: vh, w: Math.min(1600, vw), inv: true }
+      ];
+      for (const sh of shots) {
+        const code = decodeLegacyRegion(el, sh.sx, sh.sy, sh.sw, sh.sh, sh.w, sh.inv);
+        if (code) return code;
       }
+    } catch (e) {
     }
     return "";
   }
@@ -18068,7 +18333,6 @@ function useScanner() {
       clearTimeout(timer);
       timer = 0;
     }
-    qgBusy = false;
     if (stream) {
       stream.getTracks().forEach((t2) => {
         try {
@@ -18085,8 +18349,14 @@ function useScanner() {
       if (!v) stop();
     });
   }
+  watch(scanEnabled, (v) => {
+    if (!v) stop();
+  });
+  window.addEventListener("stall:scan-toggle", (e) => {
+    if (!e.detail.enabled) stop();
+  });
   onBeforeUnmount(stop);
-  return { video, active, ready, error: error2, engine, start, stop, bind, captureDecode };
+  return { video, active, ready, error: error2, engine, start, stop, bind, captureDecode, enabled: scanEnabled };
 }
 function barcodeMatch(stored, code) {
   const norm = (v) => cleanScan(v);
@@ -18273,7 +18543,7 @@ const _sfc_main$h = {
               last.value ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [
                 createTextVNode("镜头已就绪，继续对准下一件即可")
               ], 64)) : unref(ready) ? (openBlock(), createElementBlock(Fragment, { key: 1 }, [
-                createTextVNode("识别中（" + toDisplayString(unref(engine) === "quagga" ? "Quagga2 定位识别" : "兼容识别") + "）· 把条码放进框里，光线不足时靠近一点", 1)
+                createTextVNode("识别中（" + toDisplayString(unref(engine) === "wasm" ? "ZXing-WASM 高速识别" : unref(engine) === "zxing" ? "ZXing 纯 JS 兜底" : "兼容识别") + "）· 把条码放进框里，光线不足时靠近一点", 1)
               ], 64)) : unref(error2) ? (openBlock(), createElementBlock(Fragment, { key: 2 }, [
                 createTextVNode("摄像头不可用也可以直接手输，不影响开单")
               ], 64)) : (openBlock(), createElementBlock(Fragment, { key: 3 }, [
@@ -18306,7 +18576,7 @@ const _sfc_main$h = {
     };
   }
 };
-const ScanSheet = /* @__PURE__ */ _export_sfc(_sfc_main$h, [["__scopeId", "data-v-02def4da"]]);
+const ScanSheet = /* @__PURE__ */ _export_sfc(_sfc_main$h, [["__scopeId", "data-v-08025536"]]);
 const _hoisted_1$g = { class: "sell" };
 const _hoisted_2$f = { class: "sell-head" };
 const _hoisted_3$f = { class: "txt" };
@@ -27923,7 +28193,7 @@ const _sfc_main$1 = {
             word: "",
             tagline: "八收三扣，盈利有数"
           }),
-          _cache[45] || (_cache[45] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.10", -1))
+          _cache[45] || (_cache[45] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.11", -1))
         ]),
         createBaseVNode("div", _hoisted_19$1, [
           createBaseVNode("button", {
@@ -28824,7 +29094,7 @@ const _sfc_main$1 = {
             ])
           ]),
           sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_144, [..._cache[109] || (_cache[109] = [
-            createStaticVNode('<p class="hint" style="line-height:2;" data-v-e5f94c72> · 数据默认存 IndexedDB（库 <span class="mono" data-v-e5f94c72>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-e5f94c72> · <b data-v-e5f94c72>同步包 ≠ 整机备份</b>（两者导出的数据几乎一样，区别只在「导入时怎么落库」）：<br data-v-e5f94c72> 　– <b data-v-e5f94c72>同步包</b>（.json + sync 标记）：导入是<b data-v-e5f94c72>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-e5f94c72> 　– <b data-v-e5f94c72>整机备份</b>（.json，无标记）：导入是<b data-v-e5f94c72>合并</b>，同 id 取更新时间新的、本机独有的留着 → 目标是备份/迁移，换机时不会因为导入把旧设备上的新数据冲掉。<br data-v-e5f94c72> 　– 一句话记：<b data-v-e5f94c72>同步 = 覆盖成一模一样</b>，<b data-v-e5f94c72>备份 = 合并、谁都不丢</b>。<br data-v-e5f94c72> · 三种数据包，互不混淆：<b data-v-e5f94c72>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-e5f94c72>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-e5f94c72>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-e5f94c72> · 店铺包导入规则：本机已有这家店（自己导自己，或这家店本来就归你）→ 直接做一次数据更新； 本机没有 → 建一家「共管店铺」挂进来，商品/仓库/订单/日志一起落地。<br data-v-e5f94c72> · 「共管」店铺可以随时<b data-v-e5f94c72>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-e5f94c72> · 代理端是本站的 <span class="mono" data-v-e5f94c72>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-e5f94c72> · <b data-v-e5f94c72>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-e5f94c72> · <b data-v-e5f94c72>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-e5f94c72> · <b data-v-e5f94c72>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-e5f94c72> · <b data-v-e5f94c72>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-e5f94c72> · <b data-v-e5f94c72>代理包导入不会升级成共管</b>：代理包里不带仓库（代理没有仓库权限），店铺标记固定为「代理」， 挂仓库、建仓、给这家店生成代理这几个入口都会被拦下。<br data-v-e5f94c72> · <b data-v-e5f94c72>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-e5f94c72> · <b data-v-e5f94c72>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店主的设备重新导一次店铺包。<br data-v-e5f94c72> · 店铺带两种「不是自己建的」标记：<b data-v-e5f94c72>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-e5f94c72>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-e5f94c72> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-e5f94c72> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
+            createStaticVNode('<p class="hint" style="line-height:2;" data-v-ca0e9dfa> · 数据默认存 IndexedDB（库 <span class="mono" data-v-ca0e9dfa>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-ca0e9dfa> · <b data-v-ca0e9dfa>同步包 ≠ 整机备份</b>（两者导出的数据几乎一样，区别只在「导入时怎么落库」）：<br data-v-ca0e9dfa> 　– <b data-v-ca0e9dfa>同步包</b>（.json + sync 标记）：导入是<b data-v-ca0e9dfa>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-ca0e9dfa> 　– <b data-v-ca0e9dfa>整机备份</b>（.json，无标记）：导入是<b data-v-ca0e9dfa>合并</b>，同 id 取更新时间新的、本机独有的留着 → 目标是备份/迁移，换机时不会因为导入把旧设备上的新数据冲掉。<br data-v-ca0e9dfa> 　– 一句话记：<b data-v-ca0e9dfa>同步 = 覆盖成一模一样</b>，<b data-v-ca0e9dfa>备份 = 合并、谁都不丢</b>。<br data-v-ca0e9dfa> · 三种数据包，互不混淆：<b data-v-ca0e9dfa>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-ca0e9dfa>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-ca0e9dfa>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-ca0e9dfa> · 店铺包导入规则：本机已有这家店（自己导自己，或这家店本来就归你）→ 直接做一次数据更新； 本机没有 → 建一家「共管店铺」挂进来，商品/仓库/订单/日志一起落地。<br data-v-ca0e9dfa> · 「共管」店铺可以随时<b data-v-ca0e9dfa>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-ca0e9dfa> · 代理端是本站的 <span class="mono" data-v-ca0e9dfa>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-ca0e9dfa> · <b data-v-ca0e9dfa>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-ca0e9dfa> · <b data-v-ca0e9dfa>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-ca0e9dfa> · <b data-v-ca0e9dfa>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-ca0e9dfa> · <b data-v-ca0e9dfa>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-ca0e9dfa> · <b data-v-ca0e9dfa>代理包导入不会升级成共管</b>：代理包里不带仓库（代理没有仓库权限），店铺标记固定为「代理」， 挂仓库、建仓、给这家店生成代理这几个入口都会被拦下。<br data-v-ca0e9dfa> · <b data-v-ca0e9dfa>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-ca0e9dfa> · <b data-v-ca0e9dfa>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店主的设备重新导一次店铺包。<br data-v-ca0e9dfa> · 店铺带两种「不是自己建的」标记：<b data-v-ca0e9dfa>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-ca0e9dfa>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-ca0e9dfa> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-ca0e9dfa> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
           ])])) : createCommentVNode("", true)
         ], 2),
         createVNode(_component_var_popup, {
@@ -29173,7 +29443,7 @@ const _sfc_main$1 = {
     };
   }
 };
-const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-e5f94c72"]]);
+const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-ca0e9dfa"]]);
 const errBox = /* @__PURE__ */ reactive({ list: [], count: 0, seen: 0 });
 let installed = false;
 const MAX = 30;
@@ -30097,6 +30367,3 @@ window.$tip = tip;
 const isAgentEntry = /agent\.html/i.test(location.pathname);
 if (isAgentEntry) app.mount("#app");
 else installSingleTab(() => app.mount("#app"));
-export {
-  getDefaultExportFromCjs as g
-};
