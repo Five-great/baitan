@@ -1,4 +1,4 @@
-import { C as COLLECTIONS, R as ROLE, d as defaultMeta, c as defaultSettings, b as storage, n as newId, D as DB_NAME, i as initStorage, e as currentDbName, f as storageErrors, a as addProfile, s as switchProfile, h as dbBreakdown, g as getOrCreateProfile, j as baseDbName, k as setDbOverride, l as dropOtherDbs, U as UNITS, F as FONT_STEPS, T as THEME_COLORS, m as storageUsage } from "./schema-BvTSpMix.js";
+import { c as createIndexedDBAdapter, C as COLLECTIONS, R as ROLE, d as defaultMeta, e as defaultSettings, f as currentDbName, n as newId, b as storage, D as DB_NAME, i as initStorage, h as storageErrors, a as addProfile, s as switchProfile, j as dbBreakdown, g as getOrCreateProfile, k as baseDbName, l as setDbOverride, m as dropOtherDbs, U as UNITS, F as FONT_STEPS, T as THEME_COLORS, o as storageUsage } from "./schema-DRgUsAKs.js";
 /**
 * @vue/shared v3.5.44
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
@@ -12812,6 +12812,109 @@ const _sfc_main$l = {
   }
 };
 const BrandLoading = /* @__PURE__ */ _export_sfc(_sfc_main$l, [["__scopeId", "data-v-35771374"]]);
+const SHARD_COLLECTIONS = ["orders", "logs", "stockOps", "holds", "expenses"];
+let baseName = "";
+const adapters = /* @__PURE__ */ new Map();
+function setShardBase(name2) {
+  baseName = String(name2 || "");
+}
+function shardNameOf(storeId, base = baseName) {
+  const safe = String(storeId || "").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
+  return (base || "stall3") + "__s_" + (safe || "global");
+}
+async function adapterOf(storeId) {
+  const key = shardNameOf(storeId);
+  let item = adapters.get(key);
+  if (item) return item;
+  const adapter = createIndexedDBAdapter(key);
+  await adapter.init();
+  item = { adapter, name: key };
+  adapters.set(key, item);
+  return item;
+}
+async function readShard(storeId, names = SHARD_COLLECTIONS) {
+  if (!storeId || typeof indexedDB === "undefined") return {};
+  let item;
+  try {
+    item = await adapterOf(storeId);
+  } catch (e) {
+    console.warn("[shard] 打开分片失败", storeId, e);
+    return {};
+  }
+  const out = {};
+  for (const name2 of names) {
+    try {
+      const rows = await item.adapter.readPrefix(name2 + ":");
+      out[name2] = (rows || []).filter((v) => v && typeof v === "object");
+    } catch (e) {
+      console.warn("[shard] 读分片失败", storeId, name2, e);
+      out[name2] = [];
+    }
+  }
+  return out;
+}
+async function shardWriteMany(storeId, pairs) {
+  if (!storeId || !pairs || !pairs.length) return true;
+  const item = await adapterOf(storeId);
+  return item.adapter.writeMany(pairs);
+}
+async function shardDeleteMany(storeId, keys) {
+  if (!storeId || !keys || !keys.length) return true;
+  const item = await adapterOf(storeId);
+  return item.adapter.deleteMany(keys);
+}
+async function shardCount(storeId, name2) {
+  if (!storeId || typeof indexedDB === "undefined") return 0;
+  try {
+    const item = await adapterOf(storeId);
+    const keys = await item.adapter.listKeys(name2 + ":");
+    return (keys || []).length;
+  } catch (e) {
+    return 0;
+  }
+}
+async function closeShard(storeId) {
+  const key = shardNameOf(storeId);
+  const item = adapters.get(key);
+  if (!item) return;
+  try {
+    await item.adapter.close();
+  } catch (e) {
+  }
+  adapters.delete(key);
+}
+async function closeAllShards() {
+  for (const [key, item] of adapters.entries()) {
+    try {
+      await item.adapter.close();
+    } catch (e) {
+    }
+    adapters.delete(key);
+  }
+}
+async function deleteShard(storeId, base = baseName) {
+  const name2 = shardNameOf(storeId, base);
+  await closeShard(storeId);
+  if (typeof indexedDB === "undefined") return true;
+  return new Promise((resolve2) => {
+    try {
+      const req = indexedDB.deleteDatabase(name2);
+      req.onsuccess = () => resolve2(true);
+      req.onerror = req.onblocked = () => resolve2(false);
+    } catch (e) {
+      resolve2(false);
+    }
+  });
+}
+async function listShardDbNames(base = baseName) {
+  if (typeof indexedDB === "undefined" || !indexedDB.databases) return [];
+  try {
+    const prefix = (base || "stall3") + "__s_";
+    return (await indexedDB.databases()).map((d) => d.name).filter((n2) => n2 && n2.startsWith(prefix));
+  } catch (e) {
+    return [];
+  }
+}
 function r2(n2) {
   const v = Number(n2);
   if (!isFinite(v)) return 0;
@@ -14353,8 +14456,10 @@ function applyIdentity(agentId) {
   } else {
     state.viewRole = ROLE.OWNER;
     state.viewAgentId = "";
+    const cur = state.collections.stores.find((x) => x.id === state.meta.activeStoreId);
+    const curAccessible = cur && !cur.asAgent && (cur.mine || cur.coManaged);
     const own = state.collections.stores.find((x) => x.mine) || state.collections.stores.find((x) => !x.asAgent) || null;
-    if (own) state.meta.activeStoreId = own.id;
+    if (!curAccessible && own) state.meta.activeStoreId = own.id;
   }
   state.meta.role = state.viewRole;
   state.meta.agentId = state.viewAgentId;
@@ -14381,14 +14486,19 @@ const identities = computed(() => {
   return list;
 });
 const currentIdentity = computed(() => isAgent.value ? state.viewAgentId : "");
-function switchIdentity(id) {
+async function switchIdentity(id) {
   const target = id || "";
   if (target && !state.collections.agents.some((a) => a.id === target)) {
     tip("找不到这个代理");
     return false;
   }
+  await flush();
+  const prevStore = state.meta.activeStoreId;
   applyIdentity(target);
   writeLocalIdentity(target);
+  if (shardStorageOn() && !allShardsLoaded && state.meta.activeStoreId !== prevStore) {
+    await loadActiveStoreShard(state.collections, state.meta.activeStoreId);
+  }
   const who = target ? agentProfileName(target) || "代理" : "店主";
   tip("已切换为" + who + "视角");
   return true;
@@ -14611,6 +14721,32 @@ const ROW_COLLECTIONS = ["products", "orders", "stockOps", "logs", "stocks"];
 const rowKeyOf = (name2, id) => name2 + ":" + id;
 const rowIndex = { products: /* @__PURE__ */ new Map(), orders: /* @__PURE__ */ new Map(), stockOps: /* @__PURE__ */ new Map(), logs: /* @__PURE__ */ new Map(), stocks: /* @__PURE__ */ new Map() };
 const lastRefs = { products: /* @__PURE__ */ new Map(), orders: /* @__PURE__ */ new Map(), stockOps: /* @__PURE__ */ new Map(), logs: /* @__PURE__ */ new Map(), stocks: /* @__PURE__ */ new Map() };
+const storeKeySets = {};
+SHARD_COLLECTIONS.forEach((n2) => {
+  storeKeySets[n2] = /* @__PURE__ */ new Map();
+});
+function rebuildStoreKeySets(name2, rows) {
+  const map = /* @__PURE__ */ new Map();
+  for (const r of rows || []) {
+    const sid = rowStoreOf(r);
+    if (!sid) continue;
+    const key = rowIdentity(name2, r);
+    if (!key) continue;
+    let set = map.get(sid);
+    if (!set) {
+      set = /* @__PURE__ */ new Set();
+      map.set(sid, set);
+    }
+    set.add(key);
+  }
+  storeKeySets[name2] = map;
+}
+function primeRowCache(name2, rows) {
+  const keyOf = (r) => rowIdentity(name2, r);
+  rowIndex[name2] = new Map((rows || []).map((r) => [keyOf(r), JSON.stringify(r)]).filter(([k]) => k));
+  lastRefs[name2] = new Map((rows || []).map((r) => [keyOf(r), r]).filter(([k]) => k));
+  if (SHARD_COLLECTIONS.includes(name2)) rebuildStoreKeySets(name2, rows);
+}
 let forceRows = /* @__PURE__ */ new WeakSet();
 function markRow(name2, row) {
   if (row && typeof row === "object") forceRows.add(row);
@@ -14625,6 +14761,201 @@ function rowIdentity(name2, row) {
     return pid + "|" + lt + "|" + lid;
   }
   return row.id || "";
+}
+function shardStorageOn() {
+  return state.storageKind === "indexedDB" && typeof indexedDB !== "undefined";
+}
+function rowStoreOf(row) {
+  return row && row.storeId || "";
+}
+function rowFreshness(row) {
+  if (!row) return 0;
+  return Number(row.updatedAt) || Number(row.at) || Number(row.createdAt) || 0;
+}
+function mergeRowsByKey(name2, baseRows, extraRows) {
+  const map = /* @__PURE__ */ new Map();
+  const keyOf = (r) => rowIdentity(name2, r);
+  baseRows.forEach((r) => {
+    const k = keyOf(r);
+    if (k) map.set(k, r);
+  });
+  extraRows.forEach((r) => {
+    const k = keyOf(r);
+    if (!k) return;
+    const old = map.get(k);
+    if (!old || rowFreshness(r) >= rowFreshness(old)) map.set(k, r);
+  });
+  return Array.from(map.values());
+}
+function backfillShardStoreIds(loaded, meta) {
+  const stores2 = loaded.stores || [];
+  const active = meta && meta.activeStoreId || stores2[0] && stores2[0].id || "";
+  const fallback = stores2.find((s) => s.id === active) || stores2[0] || null;
+  const mountedBy = (wid) => stores2.find((st) => (st.warehouseIds || []).includes(wid));
+  let changed = false;
+  for (const name2 of SHARD_COLLECTIONS) {
+    const rows = loaded[name2] || [];
+    rows.forEach((r) => {
+      if (!r || typeof r !== "object" || r.storeId) return;
+      let sid = "";
+      if (name2 === "stockOps") {
+        if (r.locType === "store" && r.locId) sid = r.locId;
+        else if (r.locType === "warehouse" && r.locId) {
+          const st = mountedBy(r.locId);
+          sid = st ? st.id : "";
+        }
+      }
+      if (!sid && fallback) sid = fallback.id;
+      if (!sid) return;
+      r.storeId = sid;
+      r.updatedAt = r.updatedAt || Date.now();
+      markRow(name2, r);
+      changed = true;
+    });
+  }
+  return changed;
+}
+async function hydrateStoreShards(loaded) {
+  if (!shardStorageOn()) return;
+  const stores2 = loaded.stores || [];
+  if (!stores2.length) return;
+  const shardData = /* @__PURE__ */ new Map();
+  for (const st of stores2) {
+    state.bootStep = "读取「" + (st.name || "店铺") + "」的订单与日志…";
+    try {
+      shardData.set(st.id, await readShard(st.id));
+    } catch (e) {
+      console.warn("[shard] 读取失败，先用主库数据", st.id, e);
+      shardData.set(st.id, {});
+    }
+  }
+  const merged = {};
+  for (const name2 of SHARD_COLLECTIONS) {
+    const mainRows = loaded[name2] || [];
+    const keyOf = (r) => rowIdentity(name2, r);
+    const finalMap = /* @__PURE__ */ new Map();
+    mainRows.filter((r) => !rowStoreOf(r)).forEach((r) => {
+      const k = keyOf(r);
+      if (k) finalMap.set(k, r);
+    });
+    for (const st of stores2) {
+      const sid = st.id;
+      const fromShard = (shardData.get(sid) || {})[name2] || [];
+      const fromMain = mainRows.filter((r) => rowStoreOf(r) === sid);
+      const storeRows = mergeRowsByKey(name2, fromShard, fromMain);
+      if (!storeRows.length) continue;
+      const shardByKey = new Map(fromShard.map((r) => [rowIdentity(name2, r), r]).filter(([k]) => k));
+      const pairs = storeRows.filter((r) => {
+        const key = rowIdentity(name2, r);
+        if (!key) return false;
+        const old = shardByKey.get(key);
+        if (!old) return true;
+        return JSON.stringify(old) !== JSON.stringify(r);
+      }).map((r) => [rowKeyOf(name2, rowIdentity(name2, r)), JSON.parse(JSON.stringify(r))]).filter(([k]) => k && k !== name2 + ":");
+      try {
+        for (let i = 0; i < pairs.length; i += SHARD_WRITE_CHUNK) {
+          await shardWriteMany(sid, pairs.slice(i, i + SHARD_WRITE_CHUNK));
+        }
+        const got = await shardCount(sid, name2);
+        if (got < storeRows.length) throw new Error("分片条数不足 " + got + "/" + storeRows.length);
+        if (fromMain.length) {
+          const mainKeys = fromMain.map((r) => rowKeyOf(name2, rowIdentity(name2, r))).filter(Boolean);
+          if (mainKeys.length) await storage.deleteMany(mainKeys);
+        }
+      } catch (e) {
+        console.warn("[shard] 迁移失败，保留主库数据", sid, name2, e);
+        state.storageErrors.push("分片迁移未完成（" + (st.name || sid) + "·" + name2 + "）：" + (e && e.message ? e.message : e));
+      }
+      storeRows.forEach((r) => {
+        const k = keyOf(r);
+        if (k) finalMap.set(k, r);
+      });
+    }
+    merged[name2] = Array.from(finalMap.values());
+  }
+  for (const name2 of SHARD_COLLECTIONS) loaded[name2] = merged[name2] || [];
+  for (const name2 of SHARD_COLLECTIONS) primeRowCache(name2, loaded[name2]);
+}
+let allShardsLoaded = false;
+let skipShardLoad = false;
+async function loadActiveStoreShard(loaded, storeId) {
+  if (!shardStorageOn()) return;
+  const stores2 = loaded.stores || [];
+  const sid = storeId && stores2.some((s) => s.id === storeId) ? storeId : stores2[0] && stores2[0].id;
+  if (!sid) return;
+  let shard = {};
+  try {
+    state.bootStep = "读取「" + ((stores2.find((s) => s.id === sid) || {}).name || "店铺") + "」的订单与日志…";
+    shard = await readShard(sid);
+  } catch (e) {
+    console.warn("[shard] 当前店读取失败，先用主库里的全局行", sid, e);
+    state.storageErrors.push("当前店铺分片读取失败：" + (e && e.message ? e.message : e));
+  }
+  for (const name2 of SHARD_COLLECTIONS) {
+    const blanks = (loaded[name2] || []).filter((r) => !rowStoreOf(r));
+    loaded[name2] = blanks.concat(shard && shard[name2] || []);
+    primeRowCache(name2, loaded[name2]);
+  }
+  allShardsLoaded = false;
+  orderIndex.clear();
+  orderIndexLen = -1;
+  ordersRev.value++;
+}
+async function ensureAllShardsLoaded() {
+  if (allShardsLoaded || !shardStorageOn()) return;
+  const stores2 = state.collections.stores || [];
+  if (!stores2.length) {
+    allShardsLoaded = true;
+    return;
+  }
+  state.bootStep = "读取所有店铺的订单与日志…";
+  const maps = {};
+  SHARD_COLLECTIONS.forEach((n2) => {
+    maps[n2] = /* @__PURE__ */ new Map();
+  });
+  for (const name2 of SHARD_COLLECTIONS) {
+    (state.collections[name2] || []).filter((r) => !rowStoreOf(r)).forEach((r) => {
+      const k = rowIdentity(name2, r);
+      if (k) maps[name2].set(k, r);
+    });
+  }
+  for (const st of stores2) {
+    let shard = {};
+    try {
+      shard = await readShard(st.id);
+    } catch (e) {
+      console.warn("[shard] 读取失败，跳过这家店", st.id, e);
+      state.storageErrors.push("读取分片失败（" + (st.name || st.id) + "）：" + (e && e.message ? e.message : e));
+      continue;
+    }
+    for (const name2 of SHARD_COLLECTIONS) {
+      (shard[name2] || []).forEach((r) => {
+        const k = rowIdentity(name2, r);
+        if (k) maps[name2].set(k, r);
+      });
+    }
+  }
+  for (const name2 of SHARD_COLLECTIONS) {
+    state.collections[name2] = Array.from(maps[name2].values());
+    primeRowCache(name2, state.collections[name2]);
+  }
+  allShardsLoaded = true;
+  orderIndex.clear();
+  orderIndexLen = -1;
+  ordersRev.value++;
+  stocksRev.value++;
+}
+async function cleanupOrphanShards() {
+  if (!shardStorageOn()) return 0;
+  const keep = new Set((state.collections.stores || []).map((st) => shardNameOf(st.id)));
+  const names = await listShardDbNames(currentDbName());
+  let dropped = 0;
+  for (const name2 of names) {
+    if (keep.has(name2)) continue;
+    await deleteDB(name2);
+    dropped++;
+  }
+  return dropped;
 }
 async function loadRowCollection(name2) {
   const base = await storage.read(name2);
@@ -14651,8 +14982,7 @@ async function loadRowCollection(name2) {
     if (k) map.set(k, r);
   });
   const merged = Array.from(map.values());
-  rowIndex[name2] = new Map(merged.map((r) => [keyOf(r), JSON.stringify(r)]));
-  lastRefs[name2] = new Map(merged.map((r) => [keyOf(r), r]));
+  primeRowCache(name2, merged);
   if (legacy.length) {
     try {
       const pairs = merged.map((r) => [rowKeyOf(name2, keyOf(r)), r]);
@@ -14666,19 +14996,134 @@ async function loadRowCollection(name2) {
 }
 let flushSeq = 0;
 const WRITE_CHUNK = 1200;
+const SHARD_WRITE_CHUNK = 300;
 async function writePairsChunked(pairs, chunk = WRITE_CHUNK) {
   if (!pairs || !pairs.length) return;
   for (let i = 0; i < pairs.length; i += chunk) {
     await storage.writeMany(pairs.slice(i, i + chunk));
   }
 }
+let allShardsOnce = false;
+function flushAllShardsOnce() {
+  allShardsOnce = true;
+}
+function rowsOfStore(value, sid) {
+  return (value || []).filter((r) => rowStoreOf(r) === sid);
+}
+async function writeShardBuckets(buckets, deletes) {
+  for (const [sid, pairs] of buckets.entries()) {
+    for (let i = 0; i < pairs.length; i += SHARD_WRITE_CHUNK) {
+      await shardWriteMany(sid, pairs.slice(i, i + SHARD_WRITE_CHUNK));
+    }
+  }
+  for (const [sid, keys] of deletes.entries()) {
+    for (let i = 0; i < keys.length; i += WRITE_CHUNK) {
+      await shardDeleteMany(sid, keys.slice(i, i + WRITE_CHUNK));
+    }
+  }
+}
 async function persistCollections(pairs) {
   const rowPairs = [];
   const rowDeletes = [];
   const wholePairs = [];
+  const shardPairs = /* @__PURE__ */ new Map();
+  const shardDeletes = /* @__PURE__ */ new Map();
+  const applyQueue = [];
+  const activeSid = activeStore.value ? activeStore.value.id : "";
+  const shardedOn = shardStorageOn();
+  const pushShardPair = (sid, key, row) => {
+    if (!sid) {
+      rowPairs.push([key, JSON.parse(JSON.stringify(row))]);
+      return;
+    }
+    let list = shardPairs.get(sid);
+    if (!list) {
+      list = [];
+      shardPairs.set(sid, list);
+    }
+    list.push([key, JSON.parse(JSON.stringify(row))]);
+  };
+  const pushShardDelete = (sid, key) => {
+    if (!sid) {
+      rowDeletes.push(key);
+      return;
+    }
+    let list = shardDeletes.get(sid);
+    if (!list) {
+      list = [];
+      shardDeletes.set(sid, list);
+    }
+    list.push(key);
+  };
   for (const [name2, value] of pairs) {
     if (!ROW_COLLECTIONS.includes(name2) || !Array.isArray(value)) {
       wholePairs.push([name2, value]);
+      continue;
+    }
+    if (shardedOn && SHARD_COLLECTIONS.includes(name2)) {
+      const idx2 = rowIndex[name2] || /* @__PURE__ */ new Map();
+      const prev2 = lastRefs[name2] || /* @__PURE__ */ new Map();
+      const keyOf = (r) => rowIdentity(name2, r);
+      const full2 = allShardsOnce || !activeSid || flushSeq++ % 200 === 0;
+      if (!full2) {
+        const rows = rowsOfStore(value, activeSid);
+        const activeKeys = /* @__PURE__ */ new Set();
+        const updates = /* @__PURE__ */ new Map();
+        const refs = /* @__PURE__ */ new Map();
+        for (const row of rows) {
+          const key = keyOf(row);
+          if (!key) continue;
+          activeKeys.add(key);
+          refs.set(key, row);
+          const cached = idx2.get(key);
+          if (cached !== void 0 && prev2.get(key) === row && !forceRows.has(row)) continue;
+          const json = JSON.stringify(row);
+          updates.set(key, json);
+          if (cached !== json) pushShardPair(activeSid, rowKeyOf(name2, key), row);
+        }
+        const oldKeys = storeKeySets[name2].get(activeSid) || /* @__PURE__ */ new Set();
+        for (const key of oldKeys) {
+          if (!activeKeys.has(key)) pushShardDelete(activeSid, rowKeyOf(name2, key));
+        }
+        applyQueue.push(() => {
+          updates.forEach((json, key) => idx2.set(key, json));
+          refs.forEach((row, key) => {
+            prev2.set(key, row);
+          });
+          for (const key of oldKeys) {
+            if (!activeKeys.has(key)) {
+              idx2.delete(key);
+              prev2.delete(key);
+            }
+          }
+          storeKeySets[name2].set(activeSid, activeKeys);
+        });
+        continue;
+      }
+      const nextRefs2 = /* @__PURE__ */ new Map();
+      const nextIdx2 = /* @__PURE__ */ new Map();
+      for (const row of value) {
+        const key = keyOf(row);
+        if (!key) continue;
+        const cached = idx2.get(key);
+        if (cached !== void 0 && prev2.get(key) === row && !forceRows.has(row)) {
+          nextIdx2.set(key, cached);
+          nextRefs2.set(key, row);
+          continue;
+        }
+        const json = JSON.stringify(row);
+        nextIdx2.set(key, json);
+        nextRefs2.set(key, row);
+        if (cached !== json) pushShardPair(rowStoreOf(row), rowKeyOf(name2, key), row);
+      }
+      for (const [key, oldRow] of prev2.entries()) {
+        if (!nextIdx2.has(key)) pushShardDelete(rowStoreOf(oldRow), rowKeyOf(name2, key));
+      }
+      applyQueue.push(() => {
+        lastRefs[name2] = nextRefs2;
+        rowIndex[name2] = nextIdx2;
+        rebuildStoreKeySets(name2, value);
+      });
       continue;
     }
     const idx = rowIndex[name2] || /* @__PURE__ */ new Map();
@@ -14700,13 +15145,16 @@ async function persistCollections(pairs) {
       nextRefs.set(key, row);
       if (cached !== json) rowPairs.push([rowKeyOf(name2, key), JSON.parse(json)]);
     }
-    lastRefs[name2] = nextRefs;
     for (const id of idx.keys()) {
       if (!nextIdx.has(id)) rowDeletes.push(rowKeyOf(name2, id));
     }
-    rowIndex[name2] = nextIdx;
+    applyQueue.push(() => {
+      lastRefs[name2] = nextRefs;
+      rowIndex[name2] = nextIdx;
+    });
   }
   flushSeq++;
+  allShardsOnce = false;
   forceRows = /* @__PURE__ */ new WeakSet();
   await writePairsChunked(rowPairs);
   if (rowDeletes.length) {
@@ -14714,14 +15162,25 @@ async function persistCollections(pairs) {
       await storage.deleteMany(rowDeletes.slice(i, i + WRITE_CHUNK));
     }
   }
+  if (shardedOn && (shardPairs.size || shardDeletes.size)) await writeShardBuckets(shardPairs, shardDeletes);
   await writePairsChunked(wholePairs);
+  applyQueue.forEach((fn) => fn());
 }
 function writeStats() {
   return { count: writeCount };
 }
-async function flush() {
+let flushChain = Promise.resolve();
+function flush() {
+  const next = flushChain.then(() => doFlush());
+  flushChain = next.catch(() => {
+  });
+  return next;
+}
+async function doFlush() {
   clearTimeout(flushTimer);
   if (!state.ready) return;
+  if (allShardsOnce && !allShardsLoaded && shardStorageOn() && !skipShardLoad) await ensureAllShardsLoaded();
+  if (allShardsOnce) backfillShardStoreIds(state.collections, state.meta);
   const jobs = Array.from(dirty);
   dirty.clear();
   const plain = (v) => {
@@ -14770,6 +15229,7 @@ async function initApp(opts = {}) {
   state.storageKind = adapter.kind;
   state.storageLabel = adapter.label;
   state.storageErrors = storageErrors.slice();
+  setShardBase(currentDbName());
   const loaded = emptyCollections();
   const STEP_LABEL = {
     products: "商品",
@@ -14795,6 +15255,21 @@ async function initApp(opts = {}) {
   state.bootStep = "读取设置…";
   const settings = await storage.read("settings") || null;
   const meta = await storage.read("meta") || null;
+  if (shardStorageOn()) {
+    const m = meta || {};
+    if (!m.shardMigratedAt) {
+      state.bootStep = "整理各店铺的订单与日志分片…";
+      backfillShardStoreIds(loaded, m);
+      await hydrateStoreShards(loaded);
+      const migratedAt = Date.now();
+      m.shardMigratedAt = migratedAt;
+      if (state.meta) state.meta.shardMigratedAt = migratedAt;
+      touch("meta");
+      await loadActiveStoreShard(loaded, m.activeStoreId || loaded.stores[0] && loaded.stores[0].id);
+    } else {
+      await loadActiveStoreShard(loaded, m.activeStoreId || loaded.stores[0] && loaded.stores[0].id);
+    }
+  }
   const isEmpty2 = COLLECTIONS.every((n2) => loaded[n2].length === 0);
   let snapPack = null;
   if (agentCode) {
@@ -14812,8 +15287,12 @@ async function initApp(opts = {}) {
     const newPid = addProfile(agentName + "的店");
     switchProfile(newPid);
     await initStorage({ dbName: "stall3_" + newPid });
+    setShardBase("stall3_" + newPid);
     ROW_COLLECTIONS.forEach((n2) => {
       rowIndex[n2] = /* @__PURE__ */ new Map();
+    });
+    SHARD_COLLECTIONS.forEach((n2) => {
+      storeKeySets[n2] = /* @__PURE__ */ new Map();
     });
     const fresh = emptyCollections();
     for (const name2 of COLLECTIONS) fresh[name2] = [];
@@ -14830,6 +15309,7 @@ async function initApp(opts = {}) {
     });
     dirty.add("settings");
     dirty.add("meta");
+    flushAllShardsOnce();
     await flush();
   } else if (agentCode && isEmpty2) {
     state.collections = loaded;
@@ -14847,6 +15327,7 @@ async function initApp(opts = {}) {
     COLLECTIONS.forEach((n2) => dirty.add(n2));
     dirty.add("settings");
     dirty.add("meta");
+    flushAllShardsOnce();
     await flush();
   } else {
     state.collections = loaded;
@@ -14902,7 +15383,10 @@ async function initApp(opts = {}) {
   pruneStockOps();
   backfillOrderCosts();
   ensureStoreCategories();
-  if (dirty.size) await flush();
+  if (dirty.size) {
+    flushAllShardsOnce();
+    await flush();
+  }
   return state;
 }
 function assignCategoryStores() {
@@ -15029,6 +15513,7 @@ async function consumeBootPackage(boot) {
   COLLECTIONS.forEach((n2) => dirty.add(n2));
   dirty.add("settings");
   dirty.add("meta");
+  flushAllShardsOnce();
   await flush();
 }
 function deleteDB(name2) {
@@ -15046,6 +15531,10 @@ function deleteDB(name2) {
 async function wipeIndexedDBAll() {
   try {
     await storage.close();
+  } catch (e) {
+  }
+  try {
+    await closeAllShards();
   } catch (e) {
   }
   if (window.indexedDB && indexedDB.databases) {
@@ -15828,10 +16317,13 @@ function setStorePayQR(kind, url) {
   addLog("store", "改本店" + (kind === "wechat" ? "微信" : "支付宝") + "收款码");
   return true;
 }
-function switchStore(id) {
+async function switchStore(id) {
+  await flush();
   state.meta.activeStoreId = id;
   state.meta.updatedAt = Date.now();
   touch("meta");
+  await flush();
+  if (shardStorageOn() && !allShardsLoaded) await loadActiveStoreShard(state.collections, id);
 }
 function saveStore(payload) {
   if (!allow("store:write")) {
@@ -15858,6 +16350,7 @@ function saveStore(payload) {
     updatedAt: Date.now()
   };
   state.collections.stores.push(st);
+  flushAllShardsOnce();
   state.meta.activeStoreId = st.id;
   touch("stores", "meta");
   addLog("store", "新增店铺：" + name2);
@@ -15969,6 +16462,7 @@ async function storageDetail() {
 async function rebuildDb(onStep) {
   const step = typeof onStep === "function" ? onStep : () => {
   };
+  await ensureAllShardsLoaded();
   if (typeof indexedDB === "undefined" || state.storageKind !== "indexedDB") {
     throw new Error("当前不是 IndexedDB 存储，没有重建这一步");
   }
@@ -15983,9 +16477,14 @@ async function rebuildDb(onStep) {
     meta: plain(state.meta)
   };
   step(2, 25, "正在把数据写进一个新库（旧库原地不动）");
+  await closeAllShards();
   await initStorage({ dbName: newName });
+  setShardBase(newName);
   ROW_COLLECTIONS.forEach((n2) => {
     rowIndex[n2] = /* @__PURE__ */ new Map();
+  });
+  SHARD_COLLECTIONS.forEach((n2) => {
+    storeKeySets[n2] = /* @__PURE__ */ new Map();
   });
   const names = COLLECTIONS.slice();
   try {
@@ -15993,26 +16492,62 @@ async function rebuildDb(onStep) {
       const name2 = names[i];
       step(3, 25 + Math.round(i / names.length * 45), "正在写入 " + name2 + "（" + (i + 1) + "/" + names.length + "）");
       const rows = snap.collections[name2] || [];
-      if (ROW_COLLECTIONS.includes(name2)) {
+      if (ROW_COLLECTIONS.includes(name2) && SHARD_COLLECTIONS.includes(name2)) {
+        const byStore = /* @__PURE__ */ new Map();
+        const mainRows = [];
+        rows.forEach((r) => {
+          const key = rowIdentity(name2, r);
+          if (!key) return;
+          const sid = rowStoreOf(r);
+          if (!sid) {
+            mainRows.push([rowKeyOf(name2, key), r]);
+            return;
+          }
+          let list = byStore.get(sid);
+          if (!list) {
+            list = [];
+            byStore.set(sid, list);
+          }
+          list.push([rowKeyOf(name2, key), r]);
+        });
+        for (const [sid, list] of byStore.entries()) {
+          for (let j = 0; j < list.length; j += WRITE_CHUNK) await shardWriteMany(sid, list.slice(j, j + WRITE_CHUNK));
+        }
+        if (mainRows.length) await storage.writeMany(mainRows);
+        primeRowCache(name2, rows);
+      } else if (ROW_COLLECTIONS.includes(name2)) {
         const keyed = rows.map((r) => [rowIdentity(name2, r), r]).filter(([k]) => k);
-        if (keyed.length) await storage.writeMany(keyed.map(([k, r]) => [rowKeyOf(name2, k), r]));
-        rowIndex[name2] = new Map(keyed.map(([k, r]) => [k, JSON.stringify(r)]));
+        if (keyed.length) {
+          for (let j = 0; j < keyed.length; j += WRITE_CHUNK) {
+            await storage.writeMany(keyed.slice(j, j + WRITE_CHUNK).map(([k, r]) => [rowKeyOf(name2, k), r]));
+          }
+        }
+        primeRowCache(name2, rows);
       } else {
         await storage.write(name2, rows);
       }
     }
     step(4, 74, "正在校验条数与设置");
     for (const name2 of names) {
+      const rows = snap.collections[name2] || [];
       let got = 0;
-      if (ROW_COLLECTIONS.includes(name2)) {
+      if (ROW_COLLECTIONS.includes(name2) && SHARD_COLLECTIONS.includes(name2)) {
+        const mainRows = rows.filter((r) => !rowStoreOf(r));
+        if (mainRows.length) got += (await storage.listKeys(name2 + ":")).length;
+        const byStore = /* @__PURE__ */ new Map();
+        rows.forEach((r) => {
+          const sid = rowStoreOf(r);
+          if (sid) byStore.set(sid, (byStore.get(sid) || 0) + 1);
+        });
+        for (const [sid, count] of byStore.entries()) got += await shardCount(sid, name2);
+      } else if (ROW_COLLECTIONS.includes(name2)) {
         const keys = await storage.listKeys(name2 + ":");
         got = keys.length;
       } else {
-        const rows = await storage.read(name2);
-        got = Array.isArray(rows) ? rows.length : 0;
+        const stored = await storage.read(name2);
+        got = Array.isArray(stored) ? stored.length : 0;
       }
-      const want = (snap.collections[name2] || []).length;
-      if (got !== want) throw new Error("校验失败：" + name2 + " 期望 " + want + " 条，实际 " + got + " 条");
+      if (got !== rows.length) throw new Error("校验失败：" + name2 + " 期望 " + rows.length + " 条，实际 " + got + " 条");
     }
     step(5, 82, "正在写回设置");
     await storage.write("settings", snap.settings);
@@ -16021,6 +16556,7 @@ async function rebuildDb(onStep) {
     await storage.close();
     step(6, 92, "正在把指针切到新库");
     setDbOverride(pid, newName);
+    setShardBase(newName);
     step(7, 100, "切换完成，刷新后就是新库");
     return { ok: true, newName, oldName };
   } catch (e) {
@@ -16035,6 +16571,11 @@ async function rebuildDb(onStep) {
       });
     } catch (err) {
     }
+    try {
+      const shardNames = await listShardDbNames(newName);
+      for (const n2 of shardNames) await deleteDB(n2);
+    } catch (err) {
+    }
     throw e;
   }
 }
@@ -16043,10 +16584,13 @@ async function dropPendingDb() {
   if (!name2) return;
   if (name2 === currentDbName()) return;
   try {
+    await closeAllShards();
     await new Promise((r) => {
       const q = indexedDB.deleteDatabase(name2);
       q.onsuccess = q.onerror = q.onblocked = () => r(1);
     });
+    const oldShards = await listShardDbNames(name2);
+    for (const n2 of oldShards) await deleteDB(n2);
     state.meta.pendingDropDb = "";
     touch("meta");
     await flush();
@@ -16191,7 +16735,8 @@ function clearAuthIdentity() {
   flush();
   return true;
 }
-function exportBundle() {
+async function exportBundle() {
+  await ensureAllShardsLoaded();
   return {
     app: "stall-assistant",
     version: 3,
@@ -16209,6 +16754,7 @@ function exportBundle() {
 }
 async function importBundle(remote) {
   if (!remote || !remote.collections) throw new Error("文件不是有效的 83摊盈助手 JSON");
+  await ensureAllShardsLoaded();
   const fromRole = remote.meta && remote.meta.role || remote.role || ROLE.OWNER;
   const merged = mergeAll(
     { collections: state.collections, settings: state.settings, meta: state.meta },
@@ -16231,13 +16777,15 @@ async function importBundle(remote) {
   assignCategoryStores();
   assignProductStores();
   ensureStoreCategories();
+  flushAllShardsOnce();
   await flush();
+  await cleanupOrphanShards();
   const text = reportText(merged.report);
   addLog("sync", "合并数据：" + text);
   return text;
 }
-function exportSyncPack() {
-  const base = exportBundle();
+async function exportSyncPack() {
+  const base = await exportBundle();
   const c = state.collections;
   return {
     ...base,
@@ -16260,6 +16808,7 @@ function exportSyncPack() {
 }
 async function importSyncPack(remote) {
   if (!remote || !remote.collections) throw new Error("文件不是有效的 83摊盈助手同步包");
+  await ensureAllShardsLoaded();
   const merged = mergeAll(
     { collections: {}, settings: {}, meta: {} },
     remote,
@@ -16304,7 +16853,9 @@ async function importSyncPack(remote) {
   pruneStockOps();
   backfillOrderCosts();
   ensureStoreCategories();
+  flushAllShardsOnce();
   await flush();
+  await cleanupOrphanShards();
   const c = state.collections;
   const text = "覆盖为 " + c.products.length + " 商品 / " + c.orders.length + " 订单";
   addLog("sync", "设备同步（全量覆盖）：" + text);
@@ -16432,6 +16983,7 @@ function exportAgentSalesPack() {
   };
 }
 async function importStorePack(remote) {
+  await ensureAllShardsLoaded();
   const pack = remote && !remote.collections && remote.seed ? { kind: "agent", collections: remote.seed.collections, meta: remote.seed.meta, agent: remote.agent, settings: remote.seed.settings } : remote;
   if (!pack || !pack.collections) throw new Error("这不是本程序导出的店铺数据包");
   const isAgentPack = pack.kind === "agent" || pack.meta && pack.meta.role === ROLE.AGENT;
@@ -16554,6 +17106,7 @@ async function importStorePack(remote) {
   pruneStockOps();
   backfillOrderCosts();
   ensureStoreCategories();
+  flushAllShardsOnce();
   await flush();
   const counts = {
     products: (c.products || []).length,
@@ -16617,6 +17170,7 @@ async function deleteStore(storeId) {
     tip("代理不能删店铺");
     return false;
   }
+  await ensureAllShardsLoaded();
   const c = state.collections;
   const st = c.stores.find((s) => s.id === storeId);
   if (!st) {
@@ -16683,7 +17237,9 @@ async function deleteStore(storeId) {
   if (!info) return false;
   COLLECTIONS.forEach((n2) => dirty.add(n2));
   dirty.add("meta");
+  flushAllShardsOnce();
   await flush();
+  await deleteShard(storeId);
   addLog("store", "删除店铺「" + info.name + "」" + (movedLines ? "，" + movedLines + " 款货（" + movedNames.join("、") + "）已退回仓库并寄存在库里" : ""));
   tip("已删除「" + info.name + "」" + (movedLines ? "，" + movedLines + " 款货已退回仓库" : ""));
   return { ok: true, movedLines, movedQty, movedNames, parked: parkedIds.length };
@@ -16711,6 +17267,7 @@ function storeDeletePreview(storeId) {
   };
 }
 async function leaveSharedStore(storeId) {
+  await ensureAllShardsLoaded();
   const st = state.collections.stores.find((s) => s.id === storeId);
   if (!st) {
     tip("找不到这家店");
@@ -16728,12 +17285,15 @@ async function leaveSharedStore(storeId) {
   if (!info) return false;
   COLLECTIONS.forEach((n2) => dirty.add(n2));
   dirty.add("meta");
+  flushAllShardsOnce();
   await flush();
+  await deleteShard(storeId);
   addLog("store", "退出共管店铺：" + info.name);
   tip("已退出「" + info.name + "」，它的 " + info.products + " 个商品和数据都清掉了");
   return true;
 }
 async function leaveAgent(agentId) {
+  await ensureAllShardsLoaded();
   const agent = state.collections.agents.find((a) => a.id === agentId);
   if (!agent) {
     tip("找不到这个代理");
@@ -16755,7 +17315,9 @@ async function leaveAgent(agentId) {
   }
   COLLECTIONS.forEach((n2) => dirty.add(n2));
   dirty.add("meta");
+  flushAllShardsOnce();
   await flush();
+  if (purged) await deleteShard(st.id);
   if (purged && state.storageKind === "indexedDB") {
     try {
       await rebuildDb();
@@ -16789,7 +17351,14 @@ async function clearDemoData() {
   writeLocalIdentity("");
   COLLECTIONS.forEach((n2) => dirty.add(n2));
   dirty.add("meta");
-  await flush();
+  flushAllShardsOnce();
+  skipShardLoad = true;
+  try {
+    await flush();
+  } finally {
+    skipShardLoad = false;
+  }
+  await cleanupOrphanShards();
   addLog("system", "清空示例数据");
 }
 async function resetDemo() {
@@ -16800,7 +17369,14 @@ async function resetDemo() {
   COLLECTIONS.forEach((n2) => dirty.add(n2));
   dirty.add("settings");
   dirty.add("meta");
-  await flush();
+  flushAllShardsOnce();
+  skipShardLoad = true;
+  try {
+    await flush();
+  } finally {
+    skipShardLoad = false;
+  }
+  await cleanupOrphanShards();
   addLog("system", "恢复示例数据");
 }
 async function previewTable(file) {
@@ -17259,7 +17835,7 @@ function useScanner() {
   let qgBusy = false;
   async function ensureQuagga() {
     if (qgLib) return qgLib;
-    const mod = await __vitePreload(() => import("./quagga.min-qBuLS-82.js").then((n2) => n2.q), true ? [] : void 0, import.meta.url);
+    const mod = await __vitePreload(() => import("./quagga.min-D__CmqCQ.js").then((n2) => n2.q), true ? [] : void 0, import.meta.url);
     qgLib = mod.default || mod;
     if (!qgLib || typeof qgLib.decodeSingle !== "function") throw new Error("Quagga2 未加载");
     return qgLib;
@@ -26727,7 +27303,8 @@ const _sfc_main$1 = {
       }
       return items;
     }
-    function openStoreMenu(st) {
+    async function openStoreMenu(st) {
+      await ensureAllShardsLoaded();
       const items = storeOps(st);
       if (!items.length) {
         tip("这家店没有可操作的项");
@@ -26919,7 +27496,9 @@ const _sfc_main$1 = {
     }
     onMounted(loadUsage);
     function useIdentity(id) {
-      switchIdentity(id);
+      return withBusy("正在切换身份…", async () => {
+        await switchIdentity(id);
+      });
     }
     function pickStore(s) {
       if (s.asAgent) {
@@ -26928,13 +27507,14 @@ const _sfc_main$1 = {
           tip("这家代理店铺的代理身份已经不在了", "error");
           return;
         }
-        switchIdentity(agent.id);
-        tip("已切到代理「" + (agent.name || agent.code) + "」");
-        return;
+        return withBusy("正在切换到代理「" + (agent.name || agent.code) + "」…", async () => {
+          await switchIdentity(agent.id);
+          tip("已切到代理「" + (agent.name || agent.code) + "」");
+        });
       }
       if (!allow("store:write")) return;
       return withBusy("正在切换到「" + (s.name || "这家店") + "」…", async () => {
-        switchStore(s.id);
+        await switchStore(s.id);
       });
     }
     async function dropDemo() {
@@ -26974,6 +27554,7 @@ const _sfc_main$1 = {
         tip("共管店铺只能用「退出」");
         return;
       }
+      await ensureAllShardsLoaded();
       const pv = storeDeletePreview(st.id);
       if (!pv) {
         tip("找不到这家店");
@@ -27057,14 +27638,12 @@ const _sfc_main$1 = {
         tip("已建店并切换过去");
       }
     }
-    function packJSON() {
-      return JSON.stringify(exportBundle());
-    }
-    function doExport() {
-      showBusy("正在打包全部数据", "把店铺、商品、订单、日志写成一个 .json…", "spinner");
-      exportBundle();
+    async function doExport() {
+      showBusy("正在打包全部数据", "正在读取所有店铺的分片，再写成一个 .json…", "spinner");
+      await ensureAllShardsLoaded();
+      const pack = await exportBundle();
       const name2 = "83摊盈助手-数据-" + (store.value ? store.value.name : "shop") + "-" + (/* @__PURE__ */ new Date()).toISOString().slice(0, 10) + ".json";
-      if (downloadText(name2, packJSON(), "application/json;charset=utf-8")) {
+      if (downloadText(name2, JSON.stringify(pack), "application/json;charset=utf-8")) {
         hideBusy();
         tip("已导出 .json（" + state.collections.orders.length + " 笔订单，" + (/* @__PURE__ */ new Date()).toISOString().slice(0, 10) + "）");
       } else {
@@ -27072,7 +27651,7 @@ const _sfc_main$1 = {
         tip("这个浏览器不让下载，请在浏览器里打开本页", "error");
       }
     }
-    function doExportStore() {
+    async function doExportStore() {
       if (!store.value) {
         tip("先建一家店铺");
         return;
@@ -27082,8 +27661,10 @@ const _sfc_main$1 = {
         return;
       }
       showBusy("正在打包这家店", "店 + 挂载仓库 + 商品/库存/订单/日志…", "spinner");
+      await ensureAllShardsLoaded();
       const pack = exportStorePack(store.value.id);
       if (!pack) {
+        hideBusy();
         tip("导出失败：这家店的数据读不出来", "error");
         return;
       }
@@ -27098,17 +27679,22 @@ const _sfc_main$1 = {
         tip("这个浏览器不让下载，请在浏览器里打开本页", "error");
       }
     }
-    function doExportAgent() {
+    async function doExportAgent() {
+      showBusy("正在打包交账包", "订单 / 库存流水 / 库存快照…", "spinner");
+      await ensureAllShardsLoaded();
       const pack = exportAgentSalesPack();
       if (!pack) {
+        hideBusy();
         tip("没有可交账的代理数据", "error");
         return;
       }
       const c = pack.collections;
       const name2 = "代理交账-" + (agentProfile ? agentProfile.name : "代理") + "-" + (/* @__PURE__ */ new Date()).toISOString().slice(0, 10) + ".json";
       if (downloadText(name2, JSON.stringify(pack), "application/json;charset=utf-8")) {
+        hideBusy();
         tip("交账包已导出：" + c.orders.length + " 订单 / " + c.stockOps.length + " 条库存流水，发给店主导入即可");
       } else {
+        hideBusy();
         tip("这个浏览器不让下载，请在浏览器里打开本页", "error");
       }
     }
@@ -27134,9 +27720,10 @@ const _sfc_main$1 = {
       }
     }
     const syncing = /* @__PURE__ */ ref(false);
-    function doExportSync() {
-      showBusy("正在打包同步包", "整包数据 + 设置…", "spinner");
-      const pack = exportSyncPack();
+    async function doExportSync() {
+      showBusy("正在打包同步包", "正在读取所有店铺分片 + 设置…", "spinner");
+      await ensureAllShardsLoaded();
+      const pack = await exportSyncPack();
       const dev = state.meta.deviceId || "device";
       const name2 = "83摊盈助手-同步-" + dev + "-" + (/* @__PURE__ */ new Date()).toISOString().slice(0, 10) + ".json";
       if (downloadText(name2, JSON.stringify(pack), "application/json;charset=utf-8")) {
@@ -27336,7 +27923,7 @@ const _sfc_main$1 = {
             word: "",
             tagline: "八收三扣，盈利有数"
           }),
-          _cache[45] || (_cache[45] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.9", -1))
+          _cache[45] || (_cache[45] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.10", -1))
         ]),
         createBaseVNode("div", _hoisted_19$1, [
           createBaseVNode("button", {
@@ -28237,7 +28824,7 @@ const _sfc_main$1 = {
             ])
           ]),
           sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_144, [..._cache[109] || (_cache[109] = [
-            createStaticVNode('<p class="hint" style="line-height:2;" data-v-4822715f> · 数据默认存 IndexedDB（库 <span class="mono" data-v-4822715f>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-4822715f> · <b data-v-4822715f>同步包 ≠ 整机备份</b>（两者导出的数据几乎一样，区别只在「导入时怎么落库」）：<br data-v-4822715f> 　– <b data-v-4822715f>同步包</b>（.json + sync 标记）：导入是<b data-v-4822715f>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-4822715f> 　– <b data-v-4822715f>整机备份</b>（.json，无标记）：导入是<b data-v-4822715f>合并</b>，同 id 取更新时间新的、本机独有的留着 → 目标是备份/迁移，换机时不会因为导入把旧设备上的新数据冲掉。<br data-v-4822715f> 　– 一句话记：<b data-v-4822715f>同步 = 覆盖成一模一样</b>，<b data-v-4822715f>备份 = 合并、谁都不丢</b>。<br data-v-4822715f> · 三种数据包，互不混淆：<b data-v-4822715f>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-4822715f>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-4822715f>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-4822715f> · 店铺包导入规则：本机已有这家店（自己导自己，或这家店本来就归你）→ 直接做一次数据更新； 本机没有 → 建一家「共管店铺」挂进来，商品/仓库/订单/日志一起落地。<br data-v-4822715f> · 「共管」店铺可以随时<b data-v-4822715f>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-4822715f> · 代理端是本站的 <span class="mono" data-v-4822715f>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-4822715f> · <b data-v-4822715f>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-4822715f> · <b data-v-4822715f>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-4822715f> · <b data-v-4822715f>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-4822715f> · <b data-v-4822715f>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-4822715f> · <b data-v-4822715f>代理包导入不会升级成共管</b>：代理包里不带仓库（代理没有仓库权限），店铺标记固定为「代理」， 挂仓库、建仓、给这家店生成代理这几个入口都会被拦下。<br data-v-4822715f> · <b data-v-4822715f>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-4822715f> · <b data-v-4822715f>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店主的设备重新导一次店铺包。<br data-v-4822715f> · 店铺带两种「不是自己建的」标记：<b data-v-4822715f>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-4822715f>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-4822715f> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-4822715f> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
+            createStaticVNode('<p class="hint" style="line-height:2;" data-v-e5f94c72> · 数据默认存 IndexedDB（库 <span class="mono" data-v-e5f94c72>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-e5f94c72> · <b data-v-e5f94c72>同步包 ≠ 整机备份</b>（两者导出的数据几乎一样，区别只在「导入时怎么落库」）：<br data-v-e5f94c72> 　– <b data-v-e5f94c72>同步包</b>（.json + sync 标记）：导入是<b data-v-e5f94c72>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-e5f94c72> 　– <b data-v-e5f94c72>整机备份</b>（.json，无标记）：导入是<b data-v-e5f94c72>合并</b>，同 id 取更新时间新的、本机独有的留着 → 目标是备份/迁移，换机时不会因为导入把旧设备上的新数据冲掉。<br data-v-e5f94c72> 　– 一句话记：<b data-v-e5f94c72>同步 = 覆盖成一模一样</b>，<b data-v-e5f94c72>备份 = 合并、谁都不丢</b>。<br data-v-e5f94c72> · 三种数据包，互不混淆：<b data-v-e5f94c72>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-e5f94c72>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-e5f94c72>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-e5f94c72> · 店铺包导入规则：本机已有这家店（自己导自己，或这家店本来就归你）→ 直接做一次数据更新； 本机没有 → 建一家「共管店铺」挂进来，商品/仓库/订单/日志一起落地。<br data-v-e5f94c72> · 「共管」店铺可以随时<b data-v-e5f94c72>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-e5f94c72> · 代理端是本站的 <span class="mono" data-v-e5f94c72>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-e5f94c72> · <b data-v-e5f94c72>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-e5f94c72> · <b data-v-e5f94c72>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-e5f94c72> · <b data-v-e5f94c72>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-e5f94c72> · <b data-v-e5f94c72>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-e5f94c72> · <b data-v-e5f94c72>代理包导入不会升级成共管</b>：代理包里不带仓库（代理没有仓库权限），店铺标记固定为「代理」， 挂仓库、建仓、给这家店生成代理这几个入口都会被拦下。<br data-v-e5f94c72> · <b data-v-e5f94c72>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-e5f94c72> · <b data-v-e5f94c72>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店主的设备重新导一次店铺包。<br data-v-e5f94c72> · 店铺带两种「不是自己建的」标记：<b data-v-e5f94c72>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-e5f94c72>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-e5f94c72> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-e5f94c72> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
           ])])) : createCommentVNode("", true)
         ], 2),
         createVNode(_component_var_popup, {
@@ -28586,7 +29173,7 @@ const _sfc_main$1 = {
     };
   }
 };
-const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-4822715f"]]);
+const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-e5f94c72"]]);
 const errBox = /* @__PURE__ */ reactive({ list: [], count: 0, seen: 0 });
 let installed = false;
 const MAX = 30;

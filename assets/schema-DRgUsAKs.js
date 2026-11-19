@@ -510,8 +510,10 @@ async function dropOtherDbs(keepName) {
     return { dropped: 0 };
   }
   let dropped = 0;
+  const keepShardPrefix = keepName ? keepName + "__s_" : "";
   for (const name of names) {
     if (!/^stall3/.test(name) || name === keepName) continue;
+    if (keepShardPrefix && name.startsWith(keepShardPrefix)) continue;
     await new Promise((resolve) => {
       const req = indexedDB.deleteDatabase(name);
       req.onsuccess = () => {
@@ -686,17 +688,18 @@ export {
   UNITS as U,
   addProfile as a,
   storage as b,
-  defaultSettings as c,
+  createIndexedDBAdapter as c,
   defaultMeta as d,
-  currentDbName as e,
-  storageErrors as f,
+  defaultSettings as e,
+  currentDbName as f,
   getOrCreateProfile as g,
-  dbBreakdown as h,
+  storageErrors as h,
   initStorage as i,
-  baseDbName as j,
-  setDbOverride as k,
-  dropOtherDbs as l,
-  storageUsage as m,
+  dbBreakdown as j,
+  baseDbName as k,
+  setDbOverride as l,
+  dropOtherDbs as m,
   newId as n,
+  storageUsage as o,
   switchProfile as s
 };
