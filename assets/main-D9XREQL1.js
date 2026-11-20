@@ -14293,7 +14293,7 @@ function findHeader(raw) {
 function splitCatPath(value) {
   const raw = String(value == null ? "" : value).trim();
   if (!raw) return { parent: "", leaf: "", path: "" };
-  const parts = raw.split(/\s*(?:\/|>|›|→|\\|｜|\|)\s*/).filter(Boolean);
+  const parts = raw.split(/\s*(?:\/|／|>|＞|›|→|\\|｜|\||·|•|・|‧)\s*/).filter(Boolean);
   if (parts.length < 2) return { parent: "", leaf: raw, path: raw };
   return { parent: parts[0], leaf: parts[parts.length - 1], path: parts[0] + " / " + parts[parts.length - 1] };
 }
@@ -16109,7 +16109,7 @@ function pushStockOp(productId, locType, locId, delta, reason = "", refId = "") 
   touch("stockOps", "stocks");
   return rec.id;
 }
-function setStock(productId, locType, locId, qty) {
+function setStock(productId, locType, locId, qty, opts = {}) {
   if (!allow("stock:write")) {
     tip("代理模式不能改库存");
     return false;
@@ -16123,11 +16123,13 @@ function setStock(productId, locType, locId, qty) {
   setQty(state.collections.stocks, productId, locType, locId, r2(qty));
   const opId = pushStockOp(productId, locType, locId, r2(qty) - before, "count");
   touch("stocks");
-  addLog(
-    "stock",
-    "盘点：" + (p2 ? p2.name : productId) + " → " + r2(qty) + (p2 ? p2.unit : ""),
-    { warehouseId: locType === "warehouse" ? locId : "", refId: productId, opIds: [opId] }
-  );
+  if (!opts.silent) {
+    addLog(
+      "stock",
+      "盘点：" + (p2 ? p2.name : productId) + " → " + r2(qty) + (p2 ? p2.unit : ""),
+      { warehouseId: locType === "warehouse" ? locId : "", refId: productId, opIds: [opId] }
+    );
+  }
   return true;
 }
 function importWarehouseStock(whId, rows, mode = "add") {
@@ -16168,7 +16170,7 @@ function importWarehouseStock(whId, rows, mode = "add") {
   addLog("stock", "表格导入" + (overwrite ? "盘点" : "入库") + "「" + wh.name + "」" + changed.length + " 款：" + changed.slice(0, 12).join("、") + (changed.length > 12 ? "…等" : ""), { warehouseId: whId, opIds });
   return { ok: changed.length, skipped: list.length - changed.length };
 }
-function transferToWarehouse(productId, whId, qty) {
+function transferToWarehouse(productId, whId, qty, opts = {}) {
   if (!allow("warehouse:write")) {
     tip("代理模式不能调拨");
     return false;
@@ -16194,14 +16196,16 @@ function transferToWarehouse(productId, whId, qty) {
   const p2 = productById(productId);
   const opOut = pushStockOp(productId, "store", store.id, -r2(qty), "transfer-out");
   const opIn = pushStockOp(productId, "warehouse", whId, r2(qty), "transfer-in");
-  addLog(
-    "stock",
-    "退回：「" + store.name + "」→「" + ((state.collections.warehouses.find((w) => w.id === whId) || {}).name || "仓库") + "」" + (p2 ? p2.name : "") + " " + r2(qty) + (p2 ? p2.unit : ""),
-    { warehouseId: whId, refId: productId, opIds: [opOut, opIn] }
-  );
+  if (!opts.silent) {
+    addLog(
+      "stock",
+      "退回：「" + store.name + "」→「" + ((state.collections.warehouses.find((w) => w.id === whId) || {}).name || "仓库") + "」" + (p2 ? p2.name : "") + " " + r2(qty) + (p2 ? p2.unit : ""),
+      { warehouseId: whId, refId: productId, opIds: [opOut, opIn] }
+    );
+  }
   return true;
 }
-function transferToStore(productId, whId, qty) {
+function transferToStore(productId, whId, qty, opts = {}) {
   if (!allow("warehouse:write")) {
     tip("代理模式不能调拨");
     return false;
@@ -16227,11 +16231,13 @@ function transferToStore(productId, whId, qty) {
   const p2 = productById(productId);
   const opOut = pushStockOp(productId, "warehouse", whId, -r2(qty), "transfer-out");
   const opIn = pushStockOp(productId, "store", store.id, r2(qty), "transfer-in");
-  addLog(
-    "stock",
-    "调拨：「" + (state.collections.warehouses.find((w) => w.id === whId) || {}).name + "」→「" + store.name + "」" + (p2 ? p2.name : "") + " +" + r2(qty) + (p2 ? p2.unit : ""),
-    { warehouseId: whId, refId: productId, opIds: [opOut, opIn] }
-  );
+  if (!opts.silent) {
+    addLog(
+      "stock",
+      "调拨：「" + (state.collections.warehouses.find((w) => w.id === whId) || {}).name + "」→「" + store.name + "」" + (p2 ? p2.name : "") + " +" + r2(qty) + (p2 ? p2.unit : ""),
+      { warehouseId: whId, refId: productId, opIds: [opOut, opIn] }
+    );
+  }
   return true;
 }
 function shareWarehouseCategories(whId) {
@@ -23144,20 +23150,20 @@ const _sfc_main$8 = {
         const n2 = parseFloat(jobQty.value[l.p.id]);
         sum += n2;
         if (jobAct.value === "in") {
-          setStock(l.p.id, "warehouse", whId, r2(whHave(l.p.id) + n2));
+          setStock(l.p.id, "warehouse", whId, r2(whHave(l.p.id) + n2), { silent: true });
           ok++;
           acts.push(l.p.name + " +" + fmtQty(n2, l.p.unit));
         } else if (jobAct.value === "count") {
-          setStock(l.p.id, "warehouse", whId, r2(n2));
+          setStock(l.p.id, "warehouse", whId, r2(n2), { silent: true });
           ok++;
           acts.push(l.p.name + " → " + fmtQty(n2, l.p.unit));
         } else if (jobAct.value === "return") {
-          if (transferToWarehouse(l.p.id, whId, n2)) {
+          if (transferToWarehouse(l.p.id, whId, n2, { silent: true })) {
             ok++;
             acts.push(l.p.name + " 退回 " + fmtQty(n2, l.p.unit));
           } else fail++;
         } else {
-          if (transferToStore(l.p.id, whId, n2)) {
+          if (transferToStore(l.p.id, whId, n2, { silent: true })) {
             ok++;
             acts.push(l.p.name + " " + fmtQty(n2, l.p.unit));
           } else fail++;
@@ -23166,9 +23172,10 @@ const _sfc_main$8 = {
       const opIds = state.collections.stockOps.slice(opStart).map((o) => o.id);
       const word = { in: "入库", count: "盘点", transfer: "调货", return: "退回" }[jobAct.value];
       const failText = jobAct.value === "return" ? "店里不够" : "仓里不够";
+      const title = rows.length === 1 && acts[0] ? word + "「" + whName.value + "」：" + acts[0] : "批量" + word + "「" + whName.value + "」" + ok + " 款";
       addLog(
         "stock",
-        word + "「" + whName.value + "」" + ok + " 款：" + acts.join("、") + (fail ? "（" + fail + " 款" + failText + "）" : ""),
+        title + (fail ? "（" + fail + " 款" + failText + "）" : ""),
         { warehouseId: whId, opIds }
       );
       const unit = rows.length === 1 ? rows[0].p.unit : "";
@@ -23810,7 +23817,7 @@ const _sfc_main$8 = {
           }, null, 8, ["name"])
         ]),
         sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_48$3, [..._cache[51] || (_cache[51] = [
-          createStaticVNode('<div class="how" data-v-d84acd2c><b data-v-d84acd2c>1</b><span data-v-d84acd2c>买回来的货先进仓库，「入库」是在原有数量上累加，「盘点」是直接改成你数出来的数。</span></div><div class="how" data-v-d84acd2c><b data-v-d84acd2c>2</b><span data-v-d84acd2c>出摊前把今天要卖的量「发放」到店铺，店内库存才是能卖的量。</span></div><div class="how" data-v-d84acd2c><b data-v-d84acd2c>3</b><span data-v-d84acd2c>调拨是整笔成功的：仓里不够就整笔拒绝，不会半路少货。</span></div><div class="how" data-v-d84acd2c><b data-v-d84acd2c>4</b><span data-v-d84acd2c>一家店的商品总数 = 店内 + 已挂载仓库的货；没挂载的仓库，里面的同款货不算给这家店。</span></div>', 4)
+          createStaticVNode('<div class="how" data-v-4337c2e3><b data-v-4337c2e3>1</b><span data-v-4337c2e3>买回来的货先进仓库，「入库」是在原有数量上累加，「盘点」是直接改成你数出来的数。</span></div><div class="how" data-v-4337c2e3><b data-v-4337c2e3>2</b><span data-v-4337c2e3>出摊前把今天要卖的量「发放」到店铺，店内库存才是能卖的量。</span></div><div class="how" data-v-4337c2e3><b data-v-4337c2e3>3</b><span data-v-4337c2e3>调拨是整笔成功的：仓里不够就整笔拒绝，不会半路少货。</span></div><div class="how" data-v-4337c2e3><b data-v-4337c2e3>4</b><span data-v-4337c2e3>一家店的商品总数 = 店内 + 已挂载仓库的货；没挂载的仓库，里面的同款货不算给这家店。</span></div>', 4)
         ])])) : createCommentVNode("", true),
         createVNode(_component_var_popup, {
           class: "wh-sheet wh-fill",
@@ -24535,7 +24542,7 @@ const _sfc_main$8 = {
     };
   }
 };
-const WarehousesView = /* @__PURE__ */ _export_sfc(_sfc_main$8, [["__scopeId", "data-v-d84acd2c"]]);
+const WarehousesView = /* @__PURE__ */ _export_sfc(_sfc_main$8, [["__scopeId", "data-v-4337c2e3"]]);
 const _hoisted_1$7 = { class: "page" };
 const _hoisted_2$7 = { class: "topbar" };
 const _hoisted_3$7 = { class: "sub" };
@@ -28936,7 +28943,19 @@ const _sfc_main$1 = {
     const logOpen = /* @__PURE__ */ ref(false);
     const logLimit = /* @__PURE__ */ ref(80);
     const shownLogs = computed(() => scopedLogs.value.slice(0, logLimit.value));
-    const scopedLogs = computed(() => logs.value);
+    const scopedLogs = computed(() => {
+      const batchOps = /* @__PURE__ */ new Set();
+      for (const l of logs.value) {
+        if (l.type !== "stock" || !Array.isArray(l.opIds) || !l.opIds.length) continue;
+        if (!/款/.test(l.text || "")) continue;
+        l.opIds.forEach((id) => batchOps.add(id));
+      }
+      return logs.value.filter((l) => {
+        if (l.type !== "stock" || !l.refId) return true;
+        if (!Array.isArray(l.opIds) || l.opIds.length !== 1) return true;
+        return !batchOps.has(l.opIds[0]);
+      });
+    });
     const recentLogs = computed(() => scopedLogs.value.slice(0, 6));
     function logTarget(l) {
       if (!l) return "";
@@ -29499,7 +29518,7 @@ const _sfc_main$1 = {
             word: "",
             tagline: "八收三扣，盈利有数"
           }),
-          _cache[44] || (_cache[44] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.11.6", -1))
+          _cache[44] || (_cache[44] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.11.7", -1))
         ]),
         createBaseVNode("div", _hoisted_19$1, [
           createBaseVNode("button", {
@@ -30396,7 +30415,7 @@ const _sfc_main$1 = {
             ])
           ]),
           sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_144, [..._cache[107] || (_cache[107] = [
-            createStaticVNode('<p class="hint" style="line-height:2;" data-v-dd5a24e5> · 数据默认存 IndexedDB（库 <span class="mono" data-v-dd5a24e5>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-dd5a24e5> · <b data-v-dd5a24e5>同步包 ≠ 整机备份</b>：<br data-v-dd5a24e5> 　– <b data-v-dd5a24e5>同步包</b>（.json + sync 标记）：导入是<b data-v-dd5a24e5>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-dd5a24e5> 　– <b data-v-dd5a24e5>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-dd5a24e5> 　– 一句话记：<b data-v-dd5a24e5>同步 = 覆盖成一模一样</b>，<b data-v-dd5a24e5>店铺包 = 按店更新合并</b>。<br data-v-dd5a24e5> · 三种数据包，互不混淆：<b data-v-dd5a24e5>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-dd5a24e5>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-dd5a24e5>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-dd5a24e5> · 店铺包导入规则：本机已有这家店（自己导自己，或这家店本来就归你）→ 直接做一次数据更新； 本机没有 → 建一家「共管店铺」挂进来，商品/仓库/订单/日志一起落地。<br data-v-dd5a24e5> · 「共管」店铺可以随时<b data-v-dd5a24e5>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-dd5a24e5> · 代理端是本站的 <span class="mono" data-v-dd5a24e5>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-dd5a24e5> · <b data-v-dd5a24e5>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-dd5a24e5> · <b data-v-dd5a24e5>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-dd5a24e5> · <b data-v-dd5a24e5>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-dd5a24e5> · <b data-v-dd5a24e5>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-dd5a24e5> · <b data-v-dd5a24e5>代理包导入不会升级成共管</b>：代理包里不带仓库（代理没有仓库权限），店铺标记固定为「代理」， 挂仓库、建仓、给这家店生成代理这几个入口都会被拦下。<br data-v-dd5a24e5> · <b data-v-dd5a24e5>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-dd5a24e5> · <b data-v-dd5a24e5>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店主的设备重新导一次店铺包。<br data-v-dd5a24e5> · 店铺带两种「不是自己建的」标记：<b data-v-dd5a24e5>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-dd5a24e5>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-dd5a24e5> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-dd5a24e5> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
+            createStaticVNode('<p class="hint" style="line-height:2;" data-v-468489e1> · 数据默认存 IndexedDB（库 <span class="mono" data-v-468489e1>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-468489e1> · <b data-v-468489e1>同步包 ≠ 整机备份</b>：<br data-v-468489e1> 　– <b data-v-468489e1>同步包</b>（.json + sync 标记）：导入是<b data-v-468489e1>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-468489e1> 　– <b data-v-468489e1>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-468489e1> 　– 一句话记：<b data-v-468489e1>同步 = 覆盖成一模一样</b>，<b data-v-468489e1>店铺包 = 按店更新合并</b>。<br data-v-468489e1> · 三种数据包，互不混淆：<b data-v-468489e1>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-468489e1>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-468489e1>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-468489e1> · 店铺包导入规则：本机已有这家店（自己导自己，或这家店本来就归你）→ 直接做一次数据更新； 本机没有 → 建一家「共管店铺」挂进来，商品/仓库/订单/日志一起落地。<br data-v-468489e1> · 「共管」店铺可以随时<b data-v-468489e1>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-468489e1> · 代理端是本站的 <span class="mono" data-v-468489e1>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-468489e1> · <b data-v-468489e1>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-468489e1> · <b data-v-468489e1>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-468489e1> · <b data-v-468489e1>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-468489e1> · <b data-v-468489e1>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-468489e1> · <b data-v-468489e1>代理包导入不会升级成共管</b>：代理包里不带仓库（代理没有仓库权限），店铺标记固定为「代理」， 挂仓库、建仓、给这家店生成代理这几个入口都会被拦下。<br data-v-468489e1> · <b data-v-468489e1>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-468489e1> · <b data-v-468489e1>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店主的设备重新导一次店铺包。<br data-v-468489e1> · 店铺带两种「不是自己建的」标记：<b data-v-468489e1>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-468489e1>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-468489e1> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-468489e1> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
           ])])) : createCommentVNode("", true)
         ], 2),
         createVNode(_component_var_popup, {
@@ -30749,7 +30768,7 @@ const _sfc_main$1 = {
     };
   }
 };
-const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-dd5a24e5"]]);
+const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-468489e1"]]);
 const errBox = /* @__PURE__ */ reactive({ list: [], count: 0, seen: 0 });
 let installed = false;
 const MAX = 30;
