@@ -650,6 +650,8 @@ function defaultSettings() {
     // 收款后语音播报金额/找零
     minDiscount: 8,
     // 最低折扣：8 = 8 折，低于这个不给折
+    sellLayout: "single",
+    // 收银选品布局：single=单栏大按钮，two=两栏网格
     wechatQR: "",
     // 微信收款码图片链接（http/https）
     alipayQR: "",
