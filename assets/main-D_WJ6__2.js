@@ -17059,20 +17059,8 @@ function buildTempMain(folder, storeId) {
     }
   };
 }
-async function syncTempMainFile(folder, storeId) {
+async function writeTempMainFile(folder, storeId) {
   if (!folder || !folder.folderId || !storeId) return null;
-  let list = [];
-  try {
-    list = await listFiles(folder);
-  } catch (e) {
-    if (!(e && e.code === "FOLDER_NOT_FOUND")) throw e;
-  }
-  for (const f of list.filter((x) => isTempMainFile(x.name))) {
-    try {
-      await deleteFile(folder, f.id);
-    } catch (e) {
-    }
-  }
   const pack = buildTempMain(folder, storeId);
   const name2 = "83-main-" + storeId + ".json";
   const file = new File([JSON.stringify(pack)], name2, { type: "application/json" });
@@ -17087,6 +17075,22 @@ async function syncTempMainFile(folder, storeId) {
     saveFolder(storeId, saved);
   }
   return { file: info, name: name2, pack };
+}
+async function syncTempMainFile(folder, storeId) {
+  if (!folder || !folder.folderId || !storeId) return null;
+  let list = [];
+  try {
+    list = await listFiles(folder);
+  } catch (e) {
+    if (!(e && e.code === "FOLDER_NOT_FOUND")) throw e;
+  }
+  for (const f of list.filter((x) => isTempMainFile(x.name))) {
+    try {
+      await deleteFile(folder, f.id);
+    } catch (e) {
+    }
+  }
+  return writeTempMainFile(folder, storeId);
 }
 function refreshTempMainFile(storeId) {
   const tf = loadFolder(storeId);
@@ -30327,6 +30331,19 @@ const _sfc_main$1 = {
     function visibleTempFiles(list) {
       return (list || []).filter((f) => !isTempMainFile(f.name) && !/^__83-init/i.test(f.name));
     }
+    async function listTempFilesRetry(cfg, tries = 4) {
+      let last = null;
+      for (let i = 0; i < tries; i++) {
+        try {
+          return await listFiles(cfg);
+        } catch (e) {
+          last = e;
+          if (!(e && e.code === "FOLDER_NOT_FOUND")) throw e;
+          await new Promise((r) => setTimeout(r, 600 + i * 400));
+        }
+      }
+      throw last;
+    }
     const tfExpiryText = computed(() => {
       const t2 = tf.value && tf.value.expiresAt;
       if (!t2) return "到期时间未知";
@@ -30382,7 +30399,7 @@ const _sfc_main$1 = {
         tfFolderId.value = f.folderId;
         tfToken.value = f.manageToken;
         busyStep("写入分组主文件…", 70);
-        await syncTempMainFile(f, store.value.id);
+        await writeTempMainFile(f, store.value.id);
         f.mainUpdatedAt = Date.now();
         f.activated = true;
         tf.value = f;
@@ -30410,13 +30427,13 @@ const _sfc_main$1 = {
         const cfg = { folderId: id, manageToken: token, title: "接入的分组", expiresAt: 0, url: "", activated: false };
         let list;
         try {
-          list = await listFiles(cfg);
+          list = await listTempFilesRetry(cfg);
         } catch (e) {
           if (e && e.code === "FOLDER_NOT_FOUND" && !isAgent.value) {
             saveFolder(store.value.id, cfg);
-            await syncTempMainFile(cfg, store.value.id);
+            await writeTempMainFile(cfg, store.value.id);
             cfg.mainUpdatedAt = Date.now();
-            list = await listFiles(cfg);
+            list = await listTempFilesRetry(cfg);
           } else {
             throw e;
           }
@@ -30447,7 +30464,7 @@ const _sfc_main$1 = {
       if (!tf.value) return;
       tfBusy.value = "refresh";
       try {
-        let list = await listFiles(tf.value);
+        let list = await listTempFilesRetry(tf.value);
         if (!isAgent.value && !tf.value.mainUpdatedAt) {
           try {
             await syncTempMainFile(tf.value, store.value.id);
@@ -30464,9 +30481,9 @@ const _sfc_main$1 = {
       } catch (e) {
         if (e && e.code === "FOLDER_NOT_FOUND" && tf.value && !isAgent.value) {
           try {
-            await syncTempMainFile(tf.value, store.value.id);
+            await writeTempMainFile(tf.value, store.value.id);
             tf.value.mainUpdatedAt = Date.now();
-            tfFiles.value = visibleTempFiles(await listFiles(tf.value));
+            tfFiles.value = visibleTempFiles(await listTempFilesRetry(tf.value));
             tf.value.activated = true;
             saveFolder(store.value.id, tf.value);
             tfError.value = "";
@@ -31945,7 +31962,7 @@ const _sfc_main$1 = {
             ])
           ]),
           sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_185, [..._cache[115] || (_cache[115] = [
-            createStaticVNode('<p class="hint" style="line-height:2;" data-v-5a2a979d> · 数据默认存 IndexedDB（库 <span class="mono" data-v-5a2a979d>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-5a2a979d> · <b data-v-5a2a979d>同步包 ≠ 整机备份</b>：<br data-v-5a2a979d> 　– <b data-v-5a2a979d>同步包</b>（.json + sync 标记）：导入是<b data-v-5a2a979d>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-5a2a979d> 　– <b data-v-5a2a979d>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-5a2a979d> 　– 一句话记：<b data-v-5a2a979d>同步 = 覆盖成一模一样</b>，<b data-v-5a2a979d>店铺包 = 按店更新合并</b>。<br data-v-5a2a979d> · 三种数据包，互不混淆：<b data-v-5a2a979d>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-5a2a979d>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-5a2a979d>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-5a2a979d> · 店铺包导入规则：本机已有这家店（自己导自己，或这家店本来就归你）→ 直接做一次数据更新； 本机没有 → 建一家「共管店铺」挂进来，商品/仓库/订单/日志一起落地。<br data-v-5a2a979d> · 「共管」店铺可以随时<b data-v-5a2a979d>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-5a2a979d> · 代理端是本站的 <span class="mono" data-v-5a2a979d>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-5a2a979d> · <b data-v-5a2a979d>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-5a2a979d> · <b data-v-5a2a979d>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-5a2a979d> · <b data-v-5a2a979d>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-5a2a979d> · <b data-v-5a2a979d>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-5a2a979d> · <b data-v-5a2a979d>代理包导入不会升级成共管</b>：代理包里不带仓库（代理没有仓库权限），店铺标记固定为「代理」， 挂仓库、建仓、给这家店生成代理这几个入口都会被拦下。<br data-v-5a2a979d> · <b data-v-5a2a979d>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-5a2a979d> · <b data-v-5a2a979d>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店主的设备重新导一次店铺包。<br data-v-5a2a979d> · 店铺带两种「不是自己建的」标记：<b data-v-5a2a979d>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-5a2a979d>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-5a2a979d> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-5a2a979d> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
+            createStaticVNode('<p class="hint" style="line-height:2;" data-v-035d9fa0> · 数据默认存 IndexedDB（库 <span class="mono" data-v-035d9fa0>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-035d9fa0> · <b data-v-035d9fa0>同步包 ≠ 整机备份</b>：<br data-v-035d9fa0> 　– <b data-v-035d9fa0>同步包</b>（.json + sync 标记）：导入是<b data-v-035d9fa0>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-035d9fa0> 　– <b data-v-035d9fa0>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-035d9fa0> 　– 一句话记：<b data-v-035d9fa0>同步 = 覆盖成一模一样</b>，<b data-v-035d9fa0>店铺包 = 按店更新合并</b>。<br data-v-035d9fa0> · 三种数据包，互不混淆：<b data-v-035d9fa0>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-035d9fa0>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-035d9fa0>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-035d9fa0> · 店铺包导入规则：本机已有这家店（自己导自己，或这家店本来就归你）→ 直接做一次数据更新； 本机没有 → 建一家「共管店铺」挂进来，商品/仓库/订单/日志一起落地。<br data-v-035d9fa0> · 「共管」店铺可以随时<b data-v-035d9fa0>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-035d9fa0> · 代理端是本站的 <span class="mono" data-v-035d9fa0>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-035d9fa0> · <b data-v-035d9fa0>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-035d9fa0> · <b data-v-035d9fa0>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-035d9fa0> · <b data-v-035d9fa0>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-035d9fa0> · <b data-v-035d9fa0>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-035d9fa0> · <b data-v-035d9fa0>代理包导入不会升级成共管</b>：代理包里不带仓库（代理没有仓库权限），店铺标记固定为「代理」， 挂仓库、建仓、给这家店生成代理这几个入口都会被拦下。<br data-v-035d9fa0> · <b data-v-035d9fa0>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-035d9fa0> · <b data-v-035d9fa0>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店主的设备重新导一次店铺包。<br data-v-035d9fa0> · 店铺带两种「不是自己建的」标记：<b data-v-035d9fa0>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-035d9fa0>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-035d9fa0> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-035d9fa0> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
           ])])) : createCommentVNode("", true)
         ], 2),
         createBaseVNode("div", _hoisted_186, [
@@ -31954,7 +31971,7 @@ const _sfc_main$1 = {
             word: "",
             tagline: "八收三扣，盈利有数"
           }),
-          _cache[116] || (_cache[116] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.11.21", -1))
+          _cache[116] || (_cache[116] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.11.22", -1))
         ]),
         createVNode(_component_var_popup, {
           show: logOpen.value,
@@ -32306,7 +32323,7 @@ const _sfc_main$1 = {
     };
   }
 };
-const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-5a2a979d"]]);
+const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-035d9fa0"]]);
 const errBox = /* @__PURE__ */ reactive({ list: [], count: 0, seen: 0 });
 let installed = false;
 const MAX = 30;
