@@ -18900,8 +18900,8 @@ const _sfc_main$k = {
   }
 };
 const NumberSheet = /* @__PURE__ */ _export_sfc(_sfc_main$k, [["__scopeId", "data-v-9a5b63bb"]]);
-const _hoisted_1$j = ["src", "alt"];
-const _hoisted_2$i = ["width", "height", "innerHTML"];
+const _hoisted_1$j = ["width", "height", "innerHTML"];
+const _hoisted_2$i = ["src", "alt"];
 const _sfc_main$j = {
   __name: "ProductThumb",
   props: {
@@ -18911,9 +18911,17 @@ const _sfc_main$j = {
   setup(__props) {
     const props2 = __props;
     const broken = /* @__PURE__ */ ref(false);
+    const loaded = /* @__PURE__ */ ref(false);
+    const imgEl = /* @__PURE__ */ ref(null);
+    function syncLoaded() {
+      if (imgEl.value && imgEl.value.complete && imgEl.value.naturalWidth > 0) loaded.value = true;
+    }
     watch(() => props2.product.img, () => {
       broken.value = false;
+      loaded.value = false;
+      nextTick(syncLoaded);
     });
+    onMounted(() => nextTick(syncLoaded));
     const MOTIF = {
       tape: '<rect x="3" y="8" width="18" height="8" rx="1.5"/><path d="M7 8v8M17 8v8M10 12h4"/>',
       sticker: '<circle cx="12" cy="12" r="6.5"/><path d="m12 8.6 1.4 2.9 3.1.4-2.3 2.2.6 3.1-2.8-1.5-2.8 1.5.6-3.1L7.5 11.9l3.1-.4z"/>',
@@ -18930,27 +18938,39 @@ const _sfc_main$j = {
         class: "thumb",
         style: normalizeStyle({ width: __props.size + "px", height: __props.size + "px" })
       }, [
+        createBaseVNode("span", {
+          class: normalizeClass(["ph", { "is-hide": loaded.value && !broken.value }])
+        }, [
+          (openBlock(), createElementBlock("svg", {
+            width: Math.round(__props.size * 0.5),
+            height: Math.round(__props.size * 0.5),
+            viewBox: "0 0 24 24",
+            fill: "none",
+            stroke: "currentColor",
+            "stroke-width": "1.5",
+            "stroke-linecap": "round",
+            "stroke-linejoin": "round",
+            innerHTML: MOTIF[__props.product.motif] || MOTIF.tape
+          }, null, 8, _hoisted_1$j))
+        ], 2),
         __props.product.img && !broken.value ? (openBlock(), createElementBlock("img", {
           key: 0,
+          ref_key: "imgEl",
+          ref: imgEl,
           src: __props.product.img,
           alt: __props.product.name,
-          onError: _cache[0] || (_cache[0] = ($event) => broken.value = true)
-        }, null, 40, _hoisted_1$j)) : (openBlock(), createElementBlock("svg", {
-          key: 1,
-          width: Math.round(__props.size * 0.5),
-          height: Math.round(__props.size * 0.5),
-          viewBox: "0 0 24 24",
-          fill: "none",
-          stroke: "currentColor",
-          "stroke-width": "1.5",
-          "stroke-linecap": "round",
-          "stroke-linejoin": "round",
-          innerHTML: MOTIF[__props.product.motif] || MOTIF.tape
-        }, null, 8, _hoisted_2$i))
+          loading: "lazy",
+          decoding: "async",
+          draggable: "false",
+          class: normalizeClass({ loaded: loaded.value }),
+          onLoad: _cache[0] || (_cache[0] = ($event) => loaded.value = true),
+          onError: _cache[1] || (_cache[1] = ($event) => broken.value = true)
+        }, null, 42, _hoisted_2$i)) : createCommentVNode("", true)
       ], 4);
     };
   }
 };
+const ProductThumb = /* @__PURE__ */ _export_sfc(_sfc_main$j, [["__scopeId", "data-v-bc2ad28c"]]);
 const scriptRel = "modulepreload";
 const assetsURL = function(dep, importerUrl) {
   return new URL(dep, importerUrl).href;
@@ -19915,7 +19935,7 @@ const _sfc_main$i = {
             ]),
             __props.confirm && pending.value ? (openBlock(), createElementBlock("div", _hoisted_9$h, [
               createBaseVNode("div", _hoisted_10$g, [
-                pendingProduct.value ? (openBlock(), createBlock(_sfc_main$j, {
+                pendingProduct.value ? (openBlock(), createBlock(ProductThumb, {
                   key: 0,
                   product: pendingProduct.value,
                   size: 54
@@ -20189,7 +20209,7 @@ const _sfc_main$h = {
     const listEl = /* @__PURE__ */ ref(null);
     const vStart = /* @__PURE__ */ ref(0);
     const vCount = /* @__PURE__ */ ref(24);
-    const layoutMetrics = computed(() => sellLayout.value === "two" ? { perRow: 2, rowH: 210, gap: 8 } : { perRow: 1, rowH: 76, gap: 8 });
+    const layoutMetrics = computed(() => sellLayout.value === "two" ? { perRow: 2, rowH: 246, gap: 8 } : { perRow: 1, rowH: 76, gap: 8 });
     const rowStride = computed(() => layoutMetrics.value.rowH + layoutMetrics.value.gap);
     const totalRows = computed(() => Math.ceil(list.value.length / layoutMetrics.value.perRow));
     const visibleList = computed(() => list.value.slice(vStart.value, vStart.value + vCount.value));
@@ -20563,7 +20583,7 @@ const _sfc_main$h = {
                       key: p2.id,
                       class: normalizeClass(["prod sell-prod", { "two-col": sellLayout.value === "two" }])
                     }, [
-                      createVNode(_sfc_main$j, {
+                      createVNode(ProductThumb, {
                         product: p2,
                         size: sellLayout.value === "two" ? 64 : 76
                       }, null, 8, ["product", "size"]),
@@ -20621,7 +20641,7 @@ const _sfc_main$h = {
                       key: it.productId,
                       class: "pay-line"
                     }, [
-                      createVNode(_sfc_main$j, {
+                      createVNode(ProductThumb, {
                         product: prodOf(it.productId),
                         size: 40
                       }, null, 8, ["product"]),
@@ -20888,6 +20908,8 @@ const _sfc_main$h = {
                     createBaseVNode("div", _hoisted_61$4, [
                       (payMethod.value === "wechat" ? wechatQR.value : alipayQR.value) ? (openBlock(), createElementBlock("img", {
                         key: 0,
+                        loading: "lazy",
+                        decoding: "async",
                         src: payMethod.value === "wechat" ? wechatQR.value : alipayQR.value,
                         class: "qr-img",
                         alt: "收款码"
@@ -20933,7 +20955,7 @@ const _sfc_main$h = {
     };
   }
 };
-const SellSheet = /* @__PURE__ */ _export_sfc(_sfc_main$h, [["__scopeId", "data-v-7a5f328a"]]);
+const SellSheet = /* @__PURE__ */ _export_sfc(_sfc_main$h, [["__scopeId", "data-v-ec9c8e6c"]]);
 const nav = /* @__PURE__ */ reactive({
   view: "home",
   /* 【跳转】-别的页面要"直接打开某一单/某一条仓库流水"时，把目标 id 放这儿，
@@ -21809,6 +21831,8 @@ const _sfc_main$d = {
                 createBaseVNode("div", _hoisted_6$d, [
                   form.value.img ? (openBlock(), createElementBlock("img", {
                     key: 0,
+                    loading: "lazy",
+                    decoding: "async",
                     src: form.value.img,
                     alt: ""
                   }, null, 8, _hoisted_7$d)) : (openBlock(), createBlock(_sfc_main$o, {
@@ -22101,7 +22125,7 @@ const _sfc_main$d = {
     };
   }
 };
-const ProductEditor = /* @__PURE__ */ _export_sfc(_sfc_main$d, [["__scopeId", "data-v-d5da1b56"]]);
+const ProductEditor = /* @__PURE__ */ _export_sfc(_sfc_main$d, [["__scopeId", "data-v-923ecfed"]]);
 const _hoisted_1$c = { class: "sheet" };
 const _hoisted_2$c = { class: "sheet-head" };
 const _hoisted_3$c = { class: "sheet-body" };
@@ -23256,7 +23280,7 @@ const _sfc_main$a = {
                 }, [
                   createBaseVNode("div", _hoisted_7$a, [
                     createBaseVNode("div", _hoisted_8$a, [
-                      createVNode(_sfc_main$j, {
+                      createVNode(ProductThumb, {
                         product: r.parent,
                         size: 40
                       }, null, 8, ["product"]),
@@ -23285,7 +23309,7 @@ const _sfc_main$a = {
                       ], -1))
                     ]),
                     createBaseVNode("div", _hoisted_13$9, [
-                      r.child ? (openBlock(), createBlock(_sfc_main$j, {
+                      r.child ? (openBlock(), createBlock(ProductThumb, {
                         key: 0,
                         product: r.child,
                         size: 40
@@ -23683,7 +23707,7 @@ const _sfc_main$9 = {
               class: normalizeClass(["prod", { "low-stock": p2.lowStock && sq(p2) <= p2.lowStock }]),
               onClick: ($event) => openEdit(p2)
             }, [
-              createVNode(_sfc_main$j, {
+              createVNode(ProductThumb, {
                 product: p2,
                 size: 84
               }, null, 8, ["product"]),
@@ -25323,7 +25347,7 @@ const _sfc_main$8 = {
                         key: l.product.id,
                         class: "wh-line"
                       }, [
-                        createVNode(_sfc_main$j, {
+                        createVNode(ProductThumb, {
                           product: l.product,
                           size: 40
                         }, null, 8, ["product"]),
@@ -25743,7 +25767,7 @@ const _sfc_main$8 = {
                         }, null, 8, _hoisted_138$1), [
                           [vModelCheckbox, jobSel.value[l.p.id]]
                         ]),
-                        createVNode(_sfc_main$j, {
+                        createVNode(ProductThumb, {
                           product: l.p,
                           size: 36
                         }, null, 8, ["product"]),
@@ -26336,7 +26360,7 @@ const _sfc_main$7 = {
                   class: "row order-row",
                   onClick: ($event) => open(o)
                 }, [
-                  createVNode(_sfc_main$j, {
+                  createVNode(ProductThumb, {
                     product: firstProduct(o),
                     size: 40
                   }, null, 8, ["product"]),
@@ -26529,7 +26553,7 @@ const _sfc_main$7 = {
                         key: i,
                         class: "item-line"
                       }, [
-                        createVNode(_sfc_main$j, {
+                        createVNode(ProductThumb, {
                           product: lineProduct(l),
                           size: 38
                         }, null, 8, ["product"]),
@@ -26780,7 +26804,7 @@ const _sfc_main$7 = {
                           class: "picker-card",
                           onClick: ($event) => addProductToOrder(p2)
                         }, [
-                          createVNode(_sfc_main$j, {
+                          createVNode(ProductThumb, {
                             product: p2,
                             size: 48
                           }, null, 8, ["product"]),
@@ -26842,7 +26866,7 @@ const _sfc_main$7 = {
                       detailId.value = o.id;
                     }
                   }, [
-                    createVNode(_sfc_main$j, {
+                    createVNode(ProductThumb, {
                       product: firstProduct(o),
                       size: 40
                     }, null, 8, ["product"]),
@@ -29678,6 +29702,8 @@ const _sfc_main$2 = {
                       }, [
                         hasVal("store", it.k) ? (openBlock(), createElementBlock("img", {
                           key: 0,
+                          loading: "lazy",
+                          decoding: "async",
                           src: own[it.k],
                           alt: it.t + "收款码"
                         }, null, 8, _hoisted_14$2)) : (openBlock(), createElementBlock("span", _hoisted_15$2, [
@@ -29720,6 +29746,8 @@ const _sfc_main$2 = {
                           }, [
                             hasVal("generic", it.k) ? (openBlock(), createElementBlock("img", {
                               key: 0,
+                              loading: "lazy",
+                              decoding: "async",
                               src: generic[it.k],
                               alt: it.t + "收款码"
                             }, null, 8, _hoisted_21$2)) : (openBlock(), createElementBlock("span", _hoisted_22$2, [
@@ -29785,6 +29813,8 @@ const _sfc_main$2 = {
                           }, [
                             hasVal("store", it.k) ? (openBlock(), createElementBlock("img", {
                               key: 0,
+                              loading: "lazy",
+                              decoding: "async",
                               src: own[it.k],
                               alt: it.t + "本店收款码"
                             }, null, 8, _hoisted_33$2)) : (openBlock(), createElementBlock("span", _hoisted_34$2, [
@@ -29858,7 +29888,7 @@ const _sfc_main$2 = {
     };
   }
 };
-const QrCodeSheet = /* @__PURE__ */ _export_sfc(_sfc_main$2, [["__scopeId", "data-v-994f04bf"]]);
+const QrCodeSheet = /* @__PURE__ */ _export_sfc(_sfc_main$2, [["__scopeId", "data-v-fc593c07"]]);
 const AUTO_SYNC_MS = 5 * 60 * 1e3;
 const PACK_TTL_MS$1 = 60 * 60 * 1e3;
 const MAIN_SYNC_MS = 10 * 60 * 1e3;
@@ -29927,12 +29957,14 @@ function rememberOwn(cfg, f) {
   cfg.ownFileIds = ids;
 }
 function visible(cfg, list) {
-  const cutoff = Number(cfg && cfg.lastMergedAt) || 0;
   const oldest = Date.now() - PACK_TTL_MS$1;
+  const merged = cfg && cfg.mergedFileIds || [];
   return (list || []).filter((f) => {
     if (!f || isTempMainFile(f.name) || /^__83-init/i.test(f.name)) return false;
     if (isOwnFile(cfg, f)) return false;
-    if (cutoff && f.createdAt && f.createdAt <= cutoff) return false;
+    if (f.id && merged.includes(f.id)) return false;
+    const lab = tempFileLabel(f.name);
+    if (lab.kind === "agentlink" && !isAgent.value) return false;
     if (f.createdAt && f.createdAt < oldest) return false;
     return true;
   });
@@ -31499,17 +31531,17 @@ const _sfc_main$1 = {
       tfRefresh(true);
     }
     function visibleTempFiles(list) {
-      const cutoff = Number(tf.value && tf.value.lastMergedAt) || 0;
       const oldest = Date.now() - PACK_TTL_MS;
+      const merged = tf.value && tf.value.mergedFileIds || [];
       return (list || []).filter((f) => {
         if (isTempMainFile(f.name) || /^__83-init/i.test(f.name)) return false;
         if (isOwnTempFile(f)) return false;
         const lab = tempFileLabel(f.name);
         if (lab.kind === "agentlink") {
           if (!isAgent.value) return false;
-          if ((tf.value && tf.value.mergedFileIds || []).includes(f.id)) return false;
+          if (merged.includes(f.id)) return false;
         }
-        if (cutoff && f.createdAt && f.createdAt <= cutoff) return false;
+        if (f.id && merged.includes(f.id)) return false;
         if (f.createdAt && f.createdAt < oldest) return false;
         return true;
       });
@@ -32279,6 +32311,8 @@ const _sfc_main$1 = {
             }, [
               unref(state).settings.avatar ? (openBlock(), createElementBlock("img", {
                 key: 0,
+                loading: "lazy",
+                decoding: "async",
                 src: unref(state).settings.avatar,
                 alt: "头像"
               }, null, 8, _hoisted_13$1)) : (openBlock(), createBlock(_sfc_main$o, {
@@ -33067,11 +33101,15 @@ const _sfc_main$1 = {
                 createBaseVNode("span", _hoisted_135, [
                   unref(storePayQR)("wechat") ? (openBlock(), createElementBlock("img", {
                     key: 0,
+                    loading: "lazy",
+                    decoding: "async",
                     src: unref(storePayQR)("wechat"),
                     alt: "微信收款码"
                   }, null, 8, _hoisted_136)) : (openBlock(), createElementBlock("span", _hoisted_137, "微")),
                   unref(storePayQR)("alipay") ? (openBlock(), createElementBlock("img", {
                     key: 2,
+                    loading: "lazy",
+                    decoding: "async",
                     src: unref(storePayQR)("alipay"),
                     alt: "支付宝收款码"
                   }, null, 8, _hoisted_138)) : (openBlock(), createElementBlock("span", _hoisted_139, "支"))
@@ -33450,7 +33488,7 @@ const _sfc_main$1 = {
             ])
           ]),
           sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_190, [..._cache[120] || (_cache[120] = [
-            createStaticVNode('<p class="hint" style="line-height:2;" data-v-57307746> · 数据默认存 IndexedDB（库 <span class="mono" data-v-57307746>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-57307746> · <b data-v-57307746>同步包 ≠ 整机备份</b>：<br data-v-57307746> 　– <b data-v-57307746>同步包</b>（.json + sync 标记）：导入是<b data-v-57307746>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-57307746> 　– <b data-v-57307746>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-57307746> 　– 一句话记：<b data-v-57307746>同步 = 覆盖成一模一样</b>，<b data-v-57307746>店铺包 = 按店更新合并</b>。<br data-v-57307746> · 三种数据包，互不混淆：<b data-v-57307746>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-57307746>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-57307746>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-57307746> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-57307746>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-57307746> · <b data-v-57307746>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-57307746> · 「共管」店铺可以随时<b data-v-57307746>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-57307746> · 代理端是本站的 <span class="mono" data-v-57307746>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-57307746> · <b data-v-57307746>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-57307746> · <b data-v-57307746>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-57307746> · <b data-v-57307746>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-57307746> · <b data-v-57307746>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-57307746> · <b data-v-57307746>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-57307746> · <b data-v-57307746>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-57307746> · <b data-v-57307746>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-57307746> · 店铺带两种「不是自己建的」标记：<b data-v-57307746>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-57307746>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-57307746> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-57307746> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
+            createStaticVNode('<p class="hint" style="line-height:2;" data-v-c1a8b458> · 数据默认存 IndexedDB（库 <span class="mono" data-v-c1a8b458>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-c1a8b458> · <b data-v-c1a8b458>同步包 ≠ 整机备份</b>：<br data-v-c1a8b458> 　– <b data-v-c1a8b458>同步包</b>（.json + sync 标记）：导入是<b data-v-c1a8b458>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-c1a8b458> 　– <b data-v-c1a8b458>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-c1a8b458> 　– 一句话记：<b data-v-c1a8b458>同步 = 覆盖成一模一样</b>，<b data-v-c1a8b458>店铺包 = 按店更新合并</b>。<br data-v-c1a8b458> · 三种数据包，互不混淆：<b data-v-c1a8b458>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-c1a8b458>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-c1a8b458>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-c1a8b458> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-c1a8b458>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-c1a8b458> · <b data-v-c1a8b458>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-c1a8b458> · 「共管」店铺可以随时<b data-v-c1a8b458>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-c1a8b458> · 代理端是本站的 <span class="mono" data-v-c1a8b458>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-c1a8b458> · <b data-v-c1a8b458>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-c1a8b458> · <b data-v-c1a8b458>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-c1a8b458> · <b data-v-c1a8b458>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-c1a8b458> · <b data-v-c1a8b458>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-c1a8b458> · <b data-v-c1a8b458>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-c1a8b458> · <b data-v-c1a8b458>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-c1a8b458> · <b data-v-c1a8b458>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-c1a8b458> · 店铺带两种「不是自己建的」标记：<b data-v-c1a8b458>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-c1a8b458>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-c1a8b458> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-c1a8b458> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
           ])])) : createCommentVNode("", true)
         ], 2),
         createBaseVNode("div", _hoisted_191, [
@@ -33459,7 +33497,7 @@ const _sfc_main$1 = {
             word: "",
             tagline: "八收三扣，盈利有数"
           }),
-          _cache[121] || (_cache[121] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.11.39", -1))
+          _cache[121] || (_cache[121] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.11.41", -1))
         ]),
         createVNode(_component_var_popup, {
           show: logOpen.value,
@@ -33572,6 +33610,8 @@ const _sfc_main$1 = {
                 createBaseVNode("div", _hoisted_206, [
                   unref(state).settings.avatar ? (openBlock(), createElementBlock("img", {
                     key: 0,
+                    loading: "lazy",
+                    decoding: "async",
                     src: unref(state).settings.avatar,
                     alt: "当前头像"
                   }, null, 8, _hoisted_207)) : (openBlock(), createBlock(_sfc_main$o, {
@@ -33811,7 +33851,7 @@ const _sfc_main$1 = {
     };
   }
 };
-const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-57307746"]]);
+const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-c1a8b458"]]);
 const errBox = /* @__PURE__ */ reactive({ list: [], count: 0, seen: 0 });
 let installed = false;
 const MAX = 30;
@@ -33954,6 +33994,7 @@ const _hoisted_34 = {
 };
 const _hoisted_35 = ["data-on", "onClick"];
 const THEME_CACHE = "stall3:themeCache";
+const RAPID_SELECTOR = ".round, .tabs button, .pay-methods button, [data-rapid]";
 const _sfc_main = {
   __name: "App",
   setup(__props) {
@@ -34323,9 +34364,34 @@ const _sfc_main = {
     function onViewportFocusOut() {
       setTimeout(syncViewportHeight, 260);
     }
+    const tapAt = /* @__PURE__ */ new WeakMap();
+    function onGlobalImgError(e) {
+      const img = e && e.target;
+      if (!img || img.tagName !== "IMG") return;
+      img.classList.add("img-broken");
+    }
+    function onGlobalTapGuard(e) {
+      const btn = e.target && e.target.closest ? e.target.closest("button") : null;
+      if (!btn || btn.disabled) return;
+      if (btn.matches(RAPID_SELECTOR)) return;
+      const now2 = Date.now();
+      const last = tapAt.get(btn) || 0;
+      if (now2 - last < 450) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        btn.classList.add("tap-blocked");
+        setTimeout(() => btn.classList.remove("tap-blocked"), 260);
+        return;
+      }
+      tapAt.set(btn, now2);
+      btn.classList.add("tap-pressed");
+      setTimeout(() => btn.classList.remove("tap-pressed"), 180);
+    }
     onMounted(async () => {
       document.addEventListener("pointerdown", onPeekDown, true);
       document.addEventListener("pointermove", onPeekMove, true);
+      document.addEventListener("error", onGlobalImgError, true);
+      document.addEventListener("click", onGlobalTapGuard, true);
       document.addEventListener("pointerup", onPeekUp, true);
       document.addEventListener("pointercancel", onPeekUp, true);
       document.addEventListener("click", onPeekClick, true);
@@ -34363,6 +34429,8 @@ const _sfc_main = {
       document.removeEventListener("focusout", onViewportFocusOut, true);
       document.removeEventListener("pointerdown", onPeekDown, true);
       document.removeEventListener("pointermove", onPeekMove, true);
+      document.removeEventListener("error", onGlobalImgError, true);
+      document.removeEventListener("click", onGlobalTapGuard, true);
       document.removeEventListener("pointerup", onPeekUp, true);
       document.removeEventListener("pointercancel", onPeekUp, true);
       document.removeEventListener("click", onPeekClick, true);
