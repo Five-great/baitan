@@ -15391,7 +15391,12 @@ function speak(text, force) {
 }
 const dirty = /* @__PURE__ */ new Set();
 let flushTimer = null;
+let dataVersion = 1;
+function dataRev() {
+  return dataVersion;
+}
 function touch(...names) {
+  dataVersion++;
   names.forEach((n2) => {
     dirty.add(n2);
     if (n2 === "orders") ordersRev.value++;
@@ -33071,7 +33076,7 @@ const _sfc_main$1 = {
             ])
           ]),
           sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_190, [..._cache[120] || (_cache[120] = [
-            createStaticVNode('<p class="hint" style="line-height:2;" data-v-5b48d3bf> · 数据默认存 IndexedDB（库 <span class="mono" data-v-5b48d3bf>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-5b48d3bf> · <b data-v-5b48d3bf>同步包 ≠ 整机备份</b>：<br data-v-5b48d3bf> 　– <b data-v-5b48d3bf>同步包</b>（.json + sync 标记）：导入是<b data-v-5b48d3bf>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-5b48d3bf> 　– <b data-v-5b48d3bf>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-5b48d3bf> 　– 一句话记：<b data-v-5b48d3bf>同步 = 覆盖成一模一样</b>，<b data-v-5b48d3bf>店铺包 = 按店更新合并</b>。<br data-v-5b48d3bf> · 三种数据包，互不混淆：<b data-v-5b48d3bf>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-5b48d3bf>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-5b48d3bf>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-5b48d3bf> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-5b48d3bf>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-5b48d3bf> · <b data-v-5b48d3bf>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-5b48d3bf> · 「共管」店铺可以随时<b data-v-5b48d3bf>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-5b48d3bf> · 代理端是本站的 <span class="mono" data-v-5b48d3bf>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-5b48d3bf> · <b data-v-5b48d3bf>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-5b48d3bf> · <b data-v-5b48d3bf>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-5b48d3bf> · <b data-v-5b48d3bf>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-5b48d3bf> · <b data-v-5b48d3bf>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-5b48d3bf> · <b data-v-5b48d3bf>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-5b48d3bf> · <b data-v-5b48d3bf>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-5b48d3bf> · <b data-v-5b48d3bf>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-5b48d3bf> · 店铺带两种「不是自己建的」标记：<b data-v-5b48d3bf>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-5b48d3bf>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-5b48d3bf> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-5b48d3bf> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
+            createStaticVNode('<p class="hint" style="line-height:2;" data-v-3a172519> · 数据默认存 IndexedDB（库 <span class="mono" data-v-3a172519>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-3a172519> · <b data-v-3a172519>同步包 ≠ 整机备份</b>：<br data-v-3a172519> 　– <b data-v-3a172519>同步包</b>（.json + sync 标记）：导入是<b data-v-3a172519>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-3a172519> 　– <b data-v-3a172519>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-3a172519> 　– 一句话记：<b data-v-3a172519>同步 = 覆盖成一模一样</b>，<b data-v-3a172519>店铺包 = 按店更新合并</b>。<br data-v-3a172519> · 三种数据包，互不混淆：<b data-v-3a172519>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-3a172519>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-3a172519>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-3a172519> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-3a172519>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-3a172519> · <b data-v-3a172519>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-3a172519> · 「共管」店铺可以随时<b data-v-3a172519>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-3a172519> · 代理端是本站的 <span class="mono" data-v-3a172519>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-3a172519> · <b data-v-3a172519>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-3a172519> · <b data-v-3a172519>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-3a172519> · <b data-v-3a172519>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-3a172519> · <b data-v-3a172519>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-3a172519> · <b data-v-3a172519>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-3a172519> · <b data-v-3a172519>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-3a172519> · <b data-v-3a172519>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-3a172519> · 店铺带两种「不是自己建的」标记：<b data-v-3a172519>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-3a172519>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-3a172519> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-3a172519> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
           ])])) : createCommentVNode("", true)
         ], 2),
         createBaseVNode("div", _hoisted_191, [
@@ -33080,7 +33085,7 @@ const _sfc_main$1 = {
             word: "",
             tagline: "八收三扣，盈利有数"
           }),
-          _cache[121] || (_cache[121] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.11.34", -1))
+          _cache[121] || (_cache[121] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.11.35", -1))
         ]),
         createVNode(_component_var_popup, {
           show: logOpen.value,
@@ -33432,7 +33437,7 @@ const _sfc_main$1 = {
     };
   }
 };
-const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-5b48d3bf"]]);
+const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-3a172519"]]);
 const errBox = /* @__PURE__ */ reactive({ list: [], count: 0, seen: 0 });
 let installed = false;
 const MAX = 30;
@@ -33511,17 +33516,12 @@ function stamp() {
   const pad = (n2) => String(n2).padStart(2, "0");
   return d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + "-" + pad(d.getHours()) + pad(d.getMinutes());
 }
-function packHash(pack) {
-  const text = JSON.stringify({
-    store: pack && pack.store,
-    collections: pack && pack.collections,
-    agent: pack && pack.agent,
-    meta: pack && pack.meta,
-    user: pack && pack.user
+function waitIdle() {
+  return new Promise((resolve2) => {
+    if (typeof window !== "undefined" && window.requestIdleCallback) {
+      window.requestIdleCallback(() => resolve2(), { timeout: 1800 });
+    } else setTimeout(resolve2, 30);
   });
-  let h2 = 0;
-  for (let i = 0; i < text.length; i++) h2 = Math.imul(h2, 31) + text.charCodeAt(i) | 0;
-  return h2.toString(36) + ":" + text.length;
 }
 function parsePack(raw) {
   let t2 = String(raw || "").replace(/^\uFEFF/, "").trim();
@@ -33614,9 +33614,13 @@ async function syncLedgerIfDue(cfg, storeId, force = false) {
   }
 }
 async function uploadCurrent(cfg, store) {
+  const rev = dataRev();
+  if (!isAgent.value && store.mine !== false && cfg.lastAutoRev === rev && cfg.lastAutoUploadAt && Date.now() - Number(cfg.lastAutoUploadAt) < PACK_TTL_MS) {
+    return false;
+  }
+  await waitIdle();
   const pack = exportStorePack(store.id);
   if (!pack) return false;
-  const fp = packHash(pack);
   const tag = tempUploadTag(store.id);
   cfg.memberTag = tag;
   const prefix = isAgent.value ? "83-store-full-" : "83-store-";
@@ -33626,7 +33630,8 @@ async function uploadCurrent(cfg, store) {
   const id = up && up.files && up.files[0] && up.files[0].id || "";
   if (!id) throw new Error("上传后没有返回文件 id");
   rememberOwn(cfg, { id });
-  cfg.lastAutoHash = fp;
+  cfg.lastAutoHash = String(rev);
+  cfg.lastAutoRev = rev;
   cfg.lastAutoUploadAt = Date.now();
   saveFolder(store.id, cfg);
   try {
