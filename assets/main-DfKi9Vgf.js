@@ -13783,6 +13783,46 @@ function parseFolderRedirect(title) {
   if (!folderId || !manageToken) return null;
   return { folderId, manageToken, expiresAt: Number(parts[2]) || 0 };
 }
+function tempFileLabel(name2) {
+  const raw = String(name2 || "");
+  const n2 = raw.replace(/\.json$/i, "");
+  const time = fileStampTime(n2);
+  if (/^83-main-/i.test(n2)) return { kind: "main", storeId: n2.slice(8), code: "", tag: "", time };
+  if (/^83-agentlink-/i.test(n2)) {
+    const m = n2.match(/^83-agentlink-(.+?)-\d{4}-\d{2}-\d{2}/);
+    return { kind: "agentlink", storeId: "", code: m ? m[1] : "", tag: "", time };
+  }
+  if (/^83-store-full-/i.test(n2)) {
+    const m = n2.match(/^83-store-full-([^-]+)-([^-]+)-(.+?)-(\d{8}-\d{4})/);
+    return { kind: "agentfull", storeId: m ? m[1] : "", code: "", tag: m ? m[2] : "", time };
+  }
+  if (/^83-agent-/i.test(n2)) {
+    const m = n2.match(/^83-agent-([^-]+)-([^-]+)-(.+?)-(\d{8}-\d{4})/);
+    return { kind: "agent", storeId: m ? m[1] : "", code: "", tag: m ? m[2] : "", time };
+  }
+  if (/^83-store-/i.test(n2)) {
+    const m = n2.match(/^83-store-([^-]+)-([^-]+)-(.+?)-(\d{8}-\d{4})/);
+    return { kind: "store", storeId: m ? m[1] : "", code: "", tag: m ? m[2] : "", time };
+  }
+  if (/^83-sync-/i.test(n2)) {
+    const m = n2.match(/^83-sync-([^-]+)-(.+?)-(\d{8}-\d{4})/);
+    return { kind: "sync", storeId: "", code: "", tag: m ? m[1] : "", time };
+  }
+  return { kind: "unknown", storeId: "", code: "", tag: "", time };
+}
+function fileStampTime(n2) {
+  const m = n2.match(/(\d{8})-(\d{4})/);
+  if (m) {
+    const t2 = Date.parse(m[1].slice(0, 4) + "-" + m[1].slice(4, 6) + "-" + m[1].slice(6, 8) + "T" + m[2].slice(0, 2) + ":" + m[2].slice(2, 4) + ":00");
+    if (Number.isFinite(t2)) return t2;
+  }
+  const m2 = n2.match(/(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})/);
+  if (m2) {
+    const t2 = Date.parse(m2[1] + "-" + m2[2] + "-" + m2[3] + "T" + m2[4] + ":" + m2[5] + ":00");
+    if (Number.isFinite(t2)) return t2;
+  }
+  return 0;
+}
 function toBase64(text) {
   const bytes = new TextEncoder().encode(text);
   let bin = "";
@@ -29998,11 +30038,11 @@ const _hoisted_85 = { class: "ico" };
 const _hoisted_86 = ["disabled"];
 const _hoisted_87 = { class: "ico" };
 const _hoisted_88 = {
-  key: 5,
+  key: 4,
   style: { "margin-top": "8px" }
 };
 const _hoisted_89 = { class: "db-head" };
-const _hoisted_90 = { style: { "font-size": "12px", "word-break": "break-all" } };
+const _hoisted_90 = ["title"];
 const _hoisted_91 = { class: "tnum" };
 const _hoisted_92 = {
   class: "chips",
@@ -30011,7 +30051,7 @@ const _hoisted_92 = {
 const _hoisted_93 = ["disabled", "onClick"];
 const _hoisted_94 = ["href"];
 const _hoisted_95 = {
-  key: 6,
+  key: 5,
   class: "hint",
   style: { "padding": "8px 0 2px" }
 };
@@ -30296,6 +30336,7 @@ const _sfc_main$1 = {
         tfClock = 0;
       }
       window.removeEventListener("temp-folder-rotated", onFolderRotated);
+      window.removeEventListener("temp-auto-status", onAutoStatus);
     });
     function showBusy(title, text, mode = "spinner") {
       rebuild.value = { on: true, title, text, pct: mode === "spinner" ? 40 : 0, step: 0, mode };
@@ -30720,6 +30761,7 @@ const _sfc_main$1 = {
     onMounted(loadUsage);
     onMounted(() => {
       window.addEventListener("temp-folder-rotated", onFolderRotated);
+      window.addEventListener("temp-auto-status", onAutoStatus);
       loadTf();
       tfClock = window.setInterval(() => {
         tfNow.value = Date.now();
@@ -31060,6 +31102,17 @@ const _sfc_main$1 = {
         return cfg;
       }
     }
+    function onAutoStatus(e) {
+      const d = e && e.detail;
+      if (!d || !store.value || d.storeId !== store.value.id) return;
+      autoRunning.value = !!d.running;
+      if (d.status) autoStatus.value = d.status;
+      if (d.list && tf.value) {
+        const saved = loadFolder(store.value.id);
+        if (saved) applyFolderConfig(saved);
+        tfFiles.value = visibleTempFiles(d.list);
+      }
+    }
     function onFolderRotated(e) {
       const d = e && e.detail;
       if (!d || !store.value || d.storeId !== store.value.id || !d.cfg) return;
@@ -31077,6 +31130,30 @@ const _sfc_main$1 = {
         if (f.createdAt && f.createdAt < oldest) return false;
         return true;
       });
+    }
+    function tempTimeText(ts) {
+      const t2 = Number(ts) || 0;
+      if (!t2) return "";
+      const d = new Date(t2);
+      const p2 = (n2) => String(n2).padStart(2, "0");
+      return d.getFullYear() + "-" + p2(d.getMonth() + 1) + "-" + p2(d.getDate()) + " " + p2(d.getHours()) + ":" + p2(d.getMinutes());
+    }
+    function friendlyTempFileName(f) {
+      const m = tempFileLabel(f && f.name);
+      const store2 = (state.collections.stores || []).find((x) => x.id === m.storeId);
+      const storeName = store2 && store2.name || "";
+      let label = "数据包";
+      if (m.kind === "main") label = "店铺主文件";
+      else if (m.kind === "agentlink") label = "代理邀请包" + (m.code ? "（" + m.code + "）" : "");
+      else if (m.kind === "agentfull") label = (storeName ? storeName + " · " : "") + "代理全店数据包";
+      else if (m.kind === "agent") label = (storeName ? storeName + " · " : "") + "代理交账包";
+      else if (m.kind === "sync") label = "整店同步包（覆盖）";
+      else if (m.kind === "store") {
+        const shared = store2 && (store2.coManaged || store2.mine === false && !store2.asAgent);
+        label = (storeName ? storeName + " · " : "") + (shared ? "共享店铺数据包" : "店主数据同步包");
+      }
+      const t2 = tempTimeText(f && f.createdAt || m.time);
+      return label + (t2 ? "（" + t2 + "）" : "");
     }
     async function cleanupTempFiles(cfg, list) {
       const ack = ledgerAckTime(cfg && cfg.ledger ? cfg.ledger : "");
@@ -31593,7 +31670,7 @@ const _sfc_main$1 = {
           report.value = r || "";
         }
         await markTempMerged(file);
-        tip("已拉取并合并：" + file.name);
+        tip("已拉取并合并：" + friendlyTempFileName(file));
       } catch (e) {
         tip("导入失败：" + (e && e.message ? e.message : "文件格式不对"), "error");
       } finally {
@@ -32168,12 +32245,12 @@ const _sfc_main$1 = {
                   class: "chip",
                   disabled: !!tfBusy.value,
                   onClick: tfCreate
-                }, "新建本店分组", 8, _hoisted_70)) : createCommentVNode("", true),
+                }, toDisplayString(tfBusy.value === "create" ? "正在建组…" : "新建本店分组"), 9, _hoisted_70)) : createCommentVNode("", true),
                 createBaseVNode("button", {
                   class: "chip sm",
                   disabled: !!tfBusy.value,
                   onClick: tfJoin
-                }, "接入已有分组", 8, _hoisted_71)
+                }, toDisplayString(tfBusy.value === "join" ? "正在接入…" : "接入已有分组"), 9, _hoisted_71)
               ])
             ])) : (openBlock(), createElementBlock("div", _hoisted_72, [
               createBaseVNode("div", _hoisted_73, [
@@ -32191,12 +32268,12 @@ const _sfc_main$1 = {
                   class: "chip sm",
                   disabled: !!tfBusy.value,
                   onClick: _cache[9] || (_cache[9] = ($event) => tfRefresh())
-                }, "刷新文件", 8, _hoisted_78),
+                }, toDisplayString(tfBusy.value === "refresh" ? "刷新中…" : "刷新文件"), 9, _hoisted_78),
                 createBaseVNode("button", {
                   class: "chip sm",
                   disabled: !!tfBusy.value,
                   onClick: tfPullAll
-                }, "手动下拉同步", 8, _hoisted_79),
+                }, toDisplayString(tfBusy.value === "autoPull" ? "正在下拉…" : "手动下拉同步"), 9, _hoisted_79),
                 createBaseVNode("button", {
                   class: "chip sm",
                   onClick: tfCopyShare
@@ -32211,11 +32288,10 @@ const _sfc_main$1 = {
                 _cache[68] || (_cache[68] = createBaseVNode("br", null, null, -1)),
                 _cache[69] || (_cache[69] = createTextVNode("自动同步：每 5 分钟上传/拉取一次；每个成员只保留最新一份，上传新包会自动删自己的旧包；数据包上传 1 小时后自动删除（主文件保留）。", -1))
               ]),
-              autoRunning.value || autoStatus.value ? (openBlock(), createElementBlock("div", {
-                key: 2,
+              createBaseVNode("div", {
                 class: "hint",
                 style: normalizeStyle({ color: autoRunning.value ? "var(--jade)" : "var(--ink-3)", marginTop: "2px" })
-              }, toDisplayString(autoRunning.value ? "自动同步中…" : autoStatus.value), 5)) : createCommentVNode("", true),
+              }, " 自动同步：每 5 分钟上传本店包并拉取别人的新包 · " + toDisplayString(autoRunning.value ? "正在同步…" : autoStatus.value || "等待下一轮"), 5),
               createBaseVNode("button", {
                 class: "row",
                 disabled: !!tfBusy.value,
@@ -32233,7 +32309,7 @@ const _sfc_main$1 = {
                 ])
               ], 8, _hoisted_81),
               unref(isAgent) ? (openBlock(), createElementBlock("button", {
-                key: 3,
+                key: 2,
                 class: "row",
                 disabled: !!tfBusy.value,
                 onClick: tfUploadAgentFull
@@ -32250,7 +32326,7 @@ const _sfc_main$1 = {
                 ], -1))
               ], 8, _hoisted_84)) : createCommentVNode("", true),
               !unref(isAgent) ? (openBlock(), createElementBlock("button", {
-                key: 4,
+                key: 3,
                 class: "row",
                 disabled: !!tfBusy.value,
                 onClick: tfUploadFull
@@ -32273,7 +32349,10 @@ const _sfc_main$1 = {
                     class: "db-line"
                   }, [
                     createBaseVNode("div", _hoisted_89, [
-                      createBaseVNode("b", _hoisted_90, toDisplayString(f.name), 1),
+                      createBaseVNode("b", {
+                        style: { "font-size": "12px", "word-break": "break-all" },
+                        title: f.name
+                      }, toDisplayString(friendlyTempFileName(f)), 9, _hoisted_90),
                       createBaseVNode("span", _hoisted_91, toDisplayString(fmtBytes(f.size)), 1)
                     ]),
                     createBaseVNode("div", _hoisted_92, [
@@ -32281,7 +32360,7 @@ const _sfc_main$1 = {
                         class: "chip sm",
                         disabled: !!tfBusy.value,
                         onClick: ($event) => tfPull(f)
-                      }, "拉取并导入", 8, _hoisted_93),
+                      }, toDisplayString(tfBusy.value === "pull:" + f.id ? "正在拉取…" : "拉取并导入"), 9, _hoisted_93),
                       createBaseVNode("a", {
                         class: "chip sm",
                         href: f.downloadUrl,
@@ -32981,7 +33060,7 @@ const _sfc_main$1 = {
             ])
           ]),
           sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_190, [..._cache[120] || (_cache[120] = [
-            createStaticVNode('<p class="hint" style="line-height:2;" data-v-d2a0f1a9> · 数据默认存 IndexedDB（库 <span class="mono" data-v-d2a0f1a9>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-d2a0f1a9> · <b data-v-d2a0f1a9>同步包 ≠ 整机备份</b>：<br data-v-d2a0f1a9> 　– <b data-v-d2a0f1a9>同步包</b>（.json + sync 标记）：导入是<b data-v-d2a0f1a9>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-d2a0f1a9> 　– <b data-v-d2a0f1a9>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-d2a0f1a9> 　– 一句话记：<b data-v-d2a0f1a9>同步 = 覆盖成一模一样</b>，<b data-v-d2a0f1a9>店铺包 = 按店更新合并</b>。<br data-v-d2a0f1a9> · 三种数据包，互不混淆：<b data-v-d2a0f1a9>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-d2a0f1a9>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-d2a0f1a9>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-d2a0f1a9> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-d2a0f1a9>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-d2a0f1a9> · <b data-v-d2a0f1a9>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-d2a0f1a9> · 「共管」店铺可以随时<b data-v-d2a0f1a9>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-d2a0f1a9> · 代理端是本站的 <span class="mono" data-v-d2a0f1a9>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-d2a0f1a9> · <b data-v-d2a0f1a9>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-d2a0f1a9> · <b data-v-d2a0f1a9>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-d2a0f1a9> · <b data-v-d2a0f1a9>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-d2a0f1a9> · <b data-v-d2a0f1a9>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-d2a0f1a9> · <b data-v-d2a0f1a9>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-d2a0f1a9> · <b data-v-d2a0f1a9>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-d2a0f1a9> · <b data-v-d2a0f1a9>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-d2a0f1a9> · 店铺带两种「不是自己建的」标记：<b data-v-d2a0f1a9>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-d2a0f1a9>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-d2a0f1a9> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-d2a0f1a9> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
+            createStaticVNode('<p class="hint" style="line-height:2;" data-v-4db8747c> · 数据默认存 IndexedDB（库 <span class="mono" data-v-4db8747c>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-4db8747c> · <b data-v-4db8747c>同步包 ≠ 整机备份</b>：<br data-v-4db8747c> 　– <b data-v-4db8747c>同步包</b>（.json + sync 标记）：导入是<b data-v-4db8747c>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-4db8747c> 　– <b data-v-4db8747c>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-4db8747c> 　– 一句话记：<b data-v-4db8747c>同步 = 覆盖成一模一样</b>，<b data-v-4db8747c>店铺包 = 按店更新合并</b>。<br data-v-4db8747c> · 三种数据包，互不混淆：<b data-v-4db8747c>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-4db8747c>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-4db8747c>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-4db8747c> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-4db8747c>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-4db8747c> · <b data-v-4db8747c>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-4db8747c> · 「共管」店铺可以随时<b data-v-4db8747c>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-4db8747c> · 代理端是本站的 <span class="mono" data-v-4db8747c>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-4db8747c> · <b data-v-4db8747c>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-4db8747c> · <b data-v-4db8747c>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-4db8747c> · <b data-v-4db8747c>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-4db8747c> · <b data-v-4db8747c>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-4db8747c> · <b data-v-4db8747c>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-4db8747c> · <b data-v-4db8747c>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-4db8747c> · <b data-v-4db8747c>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-4db8747c> · 店铺带两种「不是自己建的」标记：<b data-v-4db8747c>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-4db8747c>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-4db8747c> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-4db8747c> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
           ])])) : createCommentVNode("", true)
         ], 2),
         createBaseVNode("div", _hoisted_191, [
@@ -32990,7 +33069,7 @@ const _sfc_main$1 = {
             word: "",
             tagline: "八收三扣，盈利有数"
           }),
-          _cache[121] || (_cache[121] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.11.31", -1))
+          _cache[121] || (_cache[121] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.11.32", -1))
         ]),
         createVNode(_component_var_popup, {
           show: logOpen.value,
@@ -33342,7 +33421,7 @@ const _sfc_main$1 = {
     };
   }
 };
-const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-d2a0f1a9"]]);
+const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-4db8747c"]]);
 const errBox = /* @__PURE__ */ reactive({ list: [], count: 0, seen: 0 });
 let installed = false;
 const MAX = 30;
@@ -33407,6 +33486,13 @@ const PACK_TTL_MS = 60 * 60 * 1e3;
 const MAIN_SYNC_MS = 10 * 60 * 1e3;
 const LEDGER_SYNC_MS = 15 * 60 * 1e3;
 const REDIRECT_CHECK_MS = 10 * 60 * 1e3;
+const AUTO_STATUS_EVENT = "temp-auto-status";
+function emitAutoStatus(detail) {
+  try {
+    window.dispatchEvent(new CustomEvent(AUTO_STATUS_EVENT, { detail }));
+  } catch (e) {
+  }
+}
 let timer = 0;
 let running = false;
 let nextAt = 0;
@@ -33544,11 +33630,14 @@ async function pullOthers(cfg, store) {
   let list = await listFiles(cfg);
   let merged = 0;
   let lastTime = 0;
-  for (const f of visible(cfg, list)) {
+  let blocked = false;
+  const candidates = visible(cfg, list);
+  for (const f of candidates) {
     let text;
     try {
       text = await fetchFileText(f);
     } catch (e) {
+      blocked = true;
       break;
     }
     let pack;
@@ -33576,7 +33665,7 @@ async function pullOthers(cfg, store) {
     await syncLedgerIfDue(cfg, store.id);
   }
   saveFolder(store.id, cfg);
-  return { merged, list };
+  return { merged, list, pending: candidates.length, blocked };
 }
 function applyRedirect(cfg, red, storeId) {
   const next = {
@@ -33695,6 +33784,10 @@ async function runTempAutoOnce() {
   let uploaded = false;
   let merged = 0;
   let listed = null;
+  let blocked = false;
+  let pending = 0;
+  let finalList = null;
+  emitAutoStatus({ storeId: store.id, running: true, status: "自动同步中，正在上传并检查新包…", at: Date.now() });
   if (!isAgent.value && store.mine !== false && (!cfg.mainUpdatedAt || Date.now() - Number(cfg.mainUpdatedAt) >= MAIN_SYNC_MS)) {
     try {
       await syncTempMainFile(cfg, store.id);
@@ -33709,19 +33802,28 @@ async function runTempAutoOnce() {
     const pulled = await pullOthers(cfg, store);
     merged = pulled.merged;
     listed = pulled.list;
+    blocked = !!pulled.blocked;
+    pending = Number(pulled.pending) || 0;
   } catch (e) {
   }
   try {
     let list = listed || await listFiles(cfg);
     list = await tempCleanup(cfg, list);
     list = await tempAckCleanup(cfg, list);
+    finalList = list;
     cfg.lastAutoAt = Date.now();
     saveFolder(store.id, cfg);
   } catch (e) {
   } finally {
     running = false;
   }
-  return { uploaded, merged };
+  let status;
+  if (blocked && pending) status = "有 " + pending + " 个新包待拉取：浏览器限制直读，请点「手动下拉同步」或下载后导入";
+  else if (merged) status = "本轮已自动合并 " + merged + " 个包";
+  else if (uploaded) status = "已上传本店最新包，暂没有别人需要合并的新包";
+  else status = "已自动检查，没有新包";
+  emitAutoStatus({ storeId: store.id, running: false, status, uploaded, merged, pending, blocked, list: finalList, at: Date.now() });
+  return { uploaded, merged, pending, blocked };
 }
 function startTempAutoSync() {
   if (timer) return;
