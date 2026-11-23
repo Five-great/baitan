@@ -29859,6 +29859,408 @@ const _sfc_main$2 = {
   }
 };
 const QrCodeSheet = /* @__PURE__ */ _export_sfc(_sfc_main$2, [["__scopeId", "data-v-994f04bf"]]);
+const AUTO_SYNC_MS = 5 * 60 * 1e3;
+const PACK_TTL_MS$1 = 60 * 60 * 1e3;
+const MAIN_SYNC_MS = 10 * 60 * 1e3;
+const LEDGER_SYNC_MS = 15 * 60 * 1e3;
+const REDIRECT_CHECK_MS = 10 * 60 * 1e3;
+const AUTO_STATUS_EVENT = "temp-auto-status";
+const HOLD_KEY = "stall3:tempfile:autoHold";
+function holdTempAuto(seconds = 120) {
+  try {
+    localStorage.setItem(HOLD_KEY, String(Date.now() + seconds * 1e3));
+  } catch (e) {
+  }
+}
+function tempAutoHeld() {
+  try {
+    return Number(localStorage.getItem(HOLD_KEY) || 0) > Date.now();
+  } catch (e) {
+    return false;
+  }
+}
+function emitAutoStatus(detail) {
+  try {
+    window.dispatchEvent(new CustomEvent(AUTO_STATUS_EVENT, { detail }));
+  } catch (e) {
+  }
+}
+let timer = 0;
+let running = false;
+function stamp() {
+  const d = /* @__PURE__ */ new Date();
+  const pad = (n2) => String(n2).padStart(2, "0");
+  return d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + "-" + pad(d.getHours()) + pad(d.getMinutes());
+}
+function waitIdle() {
+  return new Promise((resolve2) => {
+    if (typeof window !== "undefined" && window.requestIdleCallback) {
+      window.requestIdleCallback(() => resolve2(), { timeout: 1800 });
+    } else setTimeout(resolve2, 30);
+  });
+}
+function parsePack(raw) {
+  let t2 = String(raw || "").replace(/^\uFEFF/, "").trim();
+  if (!t2) throw new Error("内容是空的");
+  if (/^PACK1:/i.test(t2)) {
+    const plain = LZString.decompressFromBase64(t2.slice(6).replace(/\s+/g, ""));
+    if (!plain) throw new Error("压缩包不完整");
+    return JSON.parse(plain);
+  }
+  try {
+    return JSON.parse(t2);
+  } catch (e) {
+  }
+  const a = t2.indexOf("{"), b = t2.lastIndexOf("}");
+  if (a >= 0 && b > a) return JSON.parse(t2.slice(a, b + 1));
+  throw new Error("数据包格式不对");
+}
+function isOwnFile(cfg, f) {
+  if (!cfg || !f) return false;
+  const ids = cfg.ownFileIds || [];
+  return !!(f.id && ids.includes(f.id));
+}
+function rememberOwn(cfg, f) {
+  if (!cfg || !f) return;
+  const ids = (cfg.ownFileIds || []).slice(-60);
+  if (f.id && !ids.includes(f.id)) ids.push(f.id);
+  cfg.ownFileIds = ids;
+}
+function visible(cfg, list) {
+  const cutoff = Number(cfg && cfg.lastMergedAt) || 0;
+  const oldest = Date.now() - PACK_TTL_MS$1;
+  return (list || []).filter((f) => {
+    if (!f || isTempMainFile(f.name) || /^__83-init/i.test(f.name)) return false;
+    if (isOwnFile(cfg, f)) return false;
+    if (cutoff && f.createdAt && f.createdAt <= cutoff) return false;
+    if (f.createdAt && f.createdAt < oldest) return false;
+    return true;
+  });
+}
+async function tempCleanup(cfg, list) {
+  if (!cfg) return list;
+  const oldest = Date.now() - PACK_TTL_MS$1;
+  let changed = false;
+  for (const f of list || []) {
+    if (!f.id || isTempMainFile(f.name)) continue;
+    if (!f.createdAt || f.createdAt >= oldest) continue;
+    try {
+      await deleteFile(cfg, f.id);
+      changed = true;
+    } catch (e) {
+    }
+  }
+  return changed ? await listFiles(cfg) : list;
+}
+async function tempAckCleanup(cfg, list) {
+  const ack = ledgerAckTime(cfg && cfg.ledger ? cfg.ledger : "");
+  if (!ack) return list;
+  let changed = false;
+  for (const f of list || []) {
+    if (!f.id || isTempMainFile(f.name)) continue;
+    if (!f.createdAt || f.createdAt >= ack) continue;
+    try {
+      await deleteFile(cfg, f.id);
+      changed = true;
+    } catch (e) {
+    }
+  }
+  return changed ? await listFiles(cfg) : list;
+}
+async function deleteOlderOwn(cfg, tag, keepId) {
+  if (!tag) return;
+  const ids = (cfg.ownFileIds || []).filter((id) => id && id !== keepId);
+  for (const id of ids) {
+    try {
+      await deleteFile(cfg, id);
+    } catch (e) {
+    }
+  }
+  cfg.ownFileIds = keepId ? [keepId] : [];
+}
+async function syncLedgerIfDue(cfg, storeId, force = false) {
+  if (!force && cfg.lastLedgerAt && Date.now() - Number(cfg.lastLedgerAt) < LEDGER_SYNC_MS) return;
+  try {
+    await syncTempLedger(cfg, storeId, { markSelf: true });
+    cfg.lastLedgerAt = Date.now();
+    saveFolder(storeId, cfg);
+  } catch (e) {
+  }
+}
+async function uploadCurrent(cfg, store) {
+  const rev = dataRev();
+  if (!isAgent.value && store.mine !== false && cfg.lastAutoRev === rev && cfg.lastAutoUploadAt && Date.now() - Number(cfg.lastAutoUploadAt) < PACK_TTL_MS$1) {
+    return false;
+  }
+  await waitIdle();
+  const pack = exportStorePack(store.id);
+  if (!pack) return false;
+  const tag = tempUploadTag(store.id);
+  cfg.memberTag = tag;
+  const prefix = isAgent.value ? "83-store-full-" : "83-store-";
+  const name2 = prefix + store.id + "-" + tag + "-" + (state.meta.deviceId || "dev") + "-" + stamp() + ".json";
+  const file = new File([JSON.stringify(pack)], name2, { type: "application/json" });
+  const up = await uploadFile(cfg, file);
+  const id = up && up.files && up.files[0] && up.files[0].id || "";
+  if (!id) throw new Error("上传后没有返回文件 id");
+  rememberOwn(cfg, { id });
+  cfg.lastAutoHash = String(rev);
+  cfg.lastAutoRev = rev;
+  cfg.lastAutoUploadAt = Date.now();
+  saveFolder(store.id, cfg);
+  try {
+    await deleteOlderOwn(cfg, tag, id);
+  } catch (e) {
+  }
+  await syncLedgerIfDue(cfg, store.id);
+  return true;
+}
+async function pullOthers(cfg, store) {
+  let list = await listFiles(cfg);
+  let merged = 0;
+  let lastTime = 0;
+  let blocked = false;
+  const candidates = visible(cfg, list);
+  for (const f of candidates) {
+    let text;
+    try {
+      text = await fetchFileText(f);
+    } catch (e) {
+      blocked = true;
+      break;
+    }
+    let pack;
+    try {
+      pack = parsePack(text);
+    } catch (e) {
+      continue;
+    }
+    if (!pack || pack.kind !== "store" && pack.kind !== "agent") continue;
+    try {
+      await importStorePack(pack);
+      merged++;
+      lastTime = Math.max(lastTime, Number(f.createdAt) || Date.now());
+      cfg.mergedFileIds = (cfg.mergedFileIds || []).slice(-60);
+      if (f.id) cfg.mergedFileIds.push(f.id);
+    } catch (e) {
+    }
+  }
+  if (merged) {
+    cfg.lastMergedAt = Math.max(Number(cfg.lastMergedAt) || 0, lastTime || Date.now());
+    await syncLedgerIfDue(cfg, store.id);
+  }
+  saveFolder(store.id, cfg);
+  return { merged, list, pending: candidates.length, blocked };
+}
+function applyRedirect(cfg, red, storeId) {
+  const next = {
+    folderId: red.folderId,
+    manageToken: red.manageToken,
+    title: (cfg.title || "临时分组") + " · 已续期",
+    url: "https://tempfile.org/" + red.folderId + "/",
+    expiresAt: red.expiresAt || 0,
+    activated: true,
+    previousFolderId: cfg.folderId,
+    ownFileIds: [],
+    mergedFileIds: [],
+    lastMergedAt: 0,
+    ledger: "",
+    mainUpdatedAt: 0,
+    lastRedirectAt: Date.now(),
+    memberTag: cfg.memberTag || ""
+  };
+  saveFolder(storeId, next);
+  try {
+    window.dispatchEvent(new CustomEvent("temp-folder-rotated", { detail: { storeId, cfg: next } }));
+  } catch (e) {
+  }
+  return next;
+}
+async function followRedirect(cfg, storeId) {
+  if (cfg.redirectTo) return applyRedirect(cfg, cfg.redirectTo, storeId);
+  if (cfg.lastRedirectAt && Date.now() - Number(cfg.lastRedirectAt) < REDIRECT_CHECK_MS) return cfg;
+  let info;
+  try {
+    info = await getFolder(cfg);
+  } catch (e) {
+    return cfg;
+  }
+  cfg.lastRedirectAt = Date.now();
+  if (info.expiresAt) cfg.expiresAt = info.expiresAt;
+  const red = parseFolderRedirect(info.title);
+  if (!red) {
+    saveFolder(storeId, cfg);
+    return cfg;
+  }
+  return applyRedirect(cfg, red, storeId);
+}
+async function maybeRotate(cfg, store) {
+  if (isAgent.value || !store || store.mine === false) return cfg;
+  if (!cfg.expiresAt || cfg.rotating) return cfg;
+  if (cfg.expiresAt - Date.now() > 20 * 60 * 1e3) return cfg;
+  cfg.rotating = true;
+  saveFolder(store.id, cfg);
+  try {
+    const fresh = await createFolder({ title: "83-" + (store.name || "店铺") + "-续期" });
+    const next = {
+      ...fresh,
+      title: (store.name || "店铺") + " · 续期分组",
+      activated: true,
+      previousFolderId: cfg.folderId,
+      ownFileIds: [],
+      mergedFileIds: [],
+      lastMergedAt: 0,
+      ledger: "",
+      mainUpdatedAt: 0,
+      memberTag: cfg.memberTag || ""
+    };
+    await writeTempMainFile(next, store.id);
+    const savedMain = loadFolder(store.id);
+    if (savedMain) {
+      next.mainUpdatedAt = savedMain.mainUpdatedAt || Date.now();
+      next.ledger = savedMain.ledger || next.ledger || "";
+      next.activated = true;
+    }
+    try {
+      await uploadCurrent(next, store);
+    } catch (e) {
+    }
+    cfg.next = {
+      folderId: next.folderId,
+      manageToken: next.manageToken,
+      expiresAt: next.expiresAt,
+      createdAt: Date.now(),
+      url: next.url
+    };
+    saveFolder(store.id, cfg);
+    try {
+      await syncTempMainFile(cfg, store.id);
+    } catch (e) {
+    }
+    try {
+      await renameFolder(cfg, folderRedirectTitle(cfg.next));
+    } catch (e) {
+    }
+    delete cfg.rotating;
+    next.previousFolder = cfg.folderId;
+    saveFolder(store.id, next);
+    try {
+      window.dispatchEvent(new CustomEvent("temp-folder-rotated", { detail: { storeId: store.id, cfg: next } }));
+    } catch (e) {
+    }
+    return next;
+  } catch (e) {
+    delete cfg.rotating;
+    saveFolder(store.id, cfg);
+    return cfg;
+  }
+}
+async function runTempAutoOnce(force = false) {
+  if (running || tempAutoHeld()) return { uploaded: false, merged: 0, skipped: true };
+  if (typeof document !== "undefined" && document.visibilityState === "hidden") return { uploaded: false, merged: 0 };
+  const store = activeStore.value;
+  if (!store) return { uploaded: false, merged: 0 };
+  let cfg = loadFolder(store.id);
+  if (!cfg || !cfg.folderId) {
+    if (isAgent.value || store.mine === false) return { uploaded: false, merged: 0, skipped: true };
+    try {
+      cfg = await createFolder({ title: "83-" + (store.name || "店铺") + "-自动同步" });
+      saveFolder(store.id, cfg);
+      cfg.lastRedirectAt = Date.now();
+    } catch (e) {
+      return { uploaded: false, merged: 0, skipped: true };
+    }
+  }
+  if (!force && cfg.lastAutoAt && Date.now() - Number(cfg.lastAutoAt) < AUTO_SYNC_MS) {
+    return { uploaded: false, merged: 0, skipped: true };
+  }
+  cfg = await followRedirect(cfg, store.id);
+  cfg = await maybeRotate(cfg, store);
+  if (!cfg || !cfg.folderId) return { uploaded: false, merged: 0 };
+  running = true;
+  let uploaded = false;
+  let merged = 0;
+  let listed = null;
+  let blocked = false;
+  let pending = 0;
+  let finalList = null;
+  emitAutoStatus({ storeId: store.id, running: true, status: "自动同步中，正在上传并检查新包…", at: Date.now() });
+  if (!isAgent.value && store.mine !== false && (!cfg.mainUpdatedAt || Date.now() - Number(cfg.mainUpdatedAt) >= MAIN_SYNC_MS)) {
+    try {
+      await syncTempMainFile(cfg, store.id);
+    } catch (e) {
+    }
+  }
+  try {
+    uploaded = await uploadCurrent(cfg, store);
+  } catch (e) {
+  }
+  try {
+    const pulled = await pullOthers(cfg, store);
+    merged = pulled.merged;
+    listed = pulled.list;
+    blocked = !!pulled.blocked;
+    pending = Number(pulled.pending) || 0;
+  } catch (e) {
+  }
+  try {
+    let list = listed || await listFiles(cfg);
+    list = await tempCleanup(cfg, list);
+    list = await tempAckCleanup(cfg, list);
+    finalList = list;
+    cfg.lastAutoAt = Date.now();
+    saveFolder(store.id, cfg);
+  } catch (e) {
+  } finally {
+    running = false;
+    cfg.lastAutoAt = Date.now();
+    saveFolder(store.id, cfg);
+  }
+  let status;
+  if (blocked && pending) status = "有 " + pending + " 个新包待拉取：浏览器限制直读，请点「手动下拉同步」或下载后导入";
+  else if (merged) status = "本轮已自动合并 " + merged + " 个包";
+  else if (uploaded) status = "已上传本店最新包，暂没有别人需要合并的新包";
+  else status = "已自动检查，没有新包";
+  emitAutoStatus({ storeId: store.id, running: false, status, uploaded, merged, pending, blocked, list: finalList, at: Date.now() });
+  return { uploaded, merged, pending, blocked };
+}
+function autoDue() {
+  if (tempAutoHeld()) return false;
+  const store = activeStore.value;
+  if (!store) return false;
+  const cfg = loadFolder(store.id);
+  if (!cfg || !cfg.folderId) return !isAgent.value && store.mine !== false;
+  return !cfg.lastAutoAt || Date.now() - Number(cfg.lastAutoAt) >= AUTO_SYNC_MS;
+}
+function autoTick() {
+  if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+  if (!autoDue()) return;
+  runTempAutoOnce();
+}
+let visibilityHandler = null;
+function startTempAutoSync() {
+  if (timer) return;
+  timer = window.setInterval(autoTick, 30 * 1e3);
+  visibilityHandler = () => {
+    if (document.visibilityState === "visible") autoTick();
+  };
+  document.addEventListener("visibilitychange", visibilityHandler);
+  window.addEventListener("pageshow", autoTick);
+  window.addEventListener("focus", autoTick);
+  autoTick();
+}
+function stopTempAutoSync() {
+  if (timer) {
+    clearInterval(timer);
+    timer = 0;
+  }
+  if (visibilityHandler) {
+    document.removeEventListener("visibilitychange", visibilityHandler);
+    visibilityHandler = null;
+  }
+  window.removeEventListener("pageshow", autoTick);
+  window.removeEventListener("focus", autoTick);
+}
 const _hoisted_1$1 = { class: "page me" };
 const _hoisted_2$1 = { class: "topbar" };
 const _hoisted_3$1 = { class: "topbar-id" };
@@ -30290,7 +30692,7 @@ const _hoisted_229 = { class: "busy-title" };
 const _hoisted_230 = { class: "busy-text" };
 const _hoisted_231 = { class: "busy-bar" };
 const _hoisted_232 = { class: "busy-hint" };
-const PACK_TTL_MS$1 = 60 * 60 * 1e3;
+const PACK_TTL_MS = 60 * 60 * 1e3;
 const _sfc_main$1 = {
   __name: "MeView",
   setup(__props) {
@@ -31106,7 +31508,7 @@ const _sfc_main$1 = {
     }
     function visibleTempFiles(list) {
       const cutoff = Number(tf.value && tf.value.lastMergedAt) || 0;
-      const oldest = Date.now() - PACK_TTL_MS$1;
+      const oldest = Date.now() - PACK_TTL_MS;
       return (list || []).filter((f) => {
         if (isTempMainFile(f.name) || /^__83-init/i.test(f.name)) return false;
         if (isOwnTempFile(f)) return false;
@@ -31160,7 +31562,7 @@ const _sfc_main$1 = {
       return changed ? await listTempFilesRetry(cfg) : list;
     }
     async function cleanupExpiredPackages(cfg, list) {
-      const oldest = Date.now() - PACK_TTL_MS$1;
+      const oldest = Date.now() - PACK_TTL_MS;
       let changed = false;
       for (const f of list || []) {
         if (!f.id || isTempMainFile(f.name)) continue;
@@ -31241,6 +31643,15 @@ const _sfc_main$1 = {
         tip("代理不用自己建组，让店主发带分组的代理链接", "error");
         return;
       }
+      holdTempAuto(180);
+      const existing = loadFolder(store.value.id);
+      if (existing) {
+        tf.value = existing;
+        tfFolderId.value = existing.folderId;
+        tfToken.value = existing.manageToken;
+        tip("这家店已经有临时分组了，已切换过去", "info");
+        return;
+      }
       if (tf.value) {
         tip("这家店已经有临时分组了，先解除再新建", "error");
         return;
@@ -31273,6 +31684,7 @@ const _sfc_main$1 = {
       }
     }
     async function tfJoin() {
+      holdTempAuto(180);
       const id = String(tfFolderId.value || "").trim();
       const token = String(tfToken.value || "").trim();
       if (!id || !token) {
@@ -31328,6 +31740,7 @@ const _sfc_main$1 = {
     }
     async function tfRefresh(quiet = false) {
       if (!tf.value) return;
+      holdTempAuto(120);
       tfBusy.value = "refresh";
       try {
         await followFolderRedirect(tf.value);
@@ -33043,7 +33456,7 @@ const _sfc_main$1 = {
             ])
           ]),
           sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_190, [..._cache[120] || (_cache[120] = [
-            createStaticVNode('<p class="hint" style="line-height:2;" data-v-c7d6a117> · 数据默认存 IndexedDB（库 <span class="mono" data-v-c7d6a117>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-c7d6a117> · <b data-v-c7d6a117>同步包 ≠ 整机备份</b>：<br data-v-c7d6a117> 　– <b data-v-c7d6a117>同步包</b>（.json + sync 标记）：导入是<b data-v-c7d6a117>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-c7d6a117> 　– <b data-v-c7d6a117>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-c7d6a117> 　– 一句话记：<b data-v-c7d6a117>同步 = 覆盖成一模一样</b>，<b data-v-c7d6a117>店铺包 = 按店更新合并</b>。<br data-v-c7d6a117> · 三种数据包，互不混淆：<b data-v-c7d6a117>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-c7d6a117>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-c7d6a117>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-c7d6a117> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-c7d6a117>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-c7d6a117> · <b data-v-c7d6a117>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-c7d6a117> · 「共管」店铺可以随时<b data-v-c7d6a117>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-c7d6a117> · 代理端是本站的 <span class="mono" data-v-c7d6a117>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-c7d6a117> · <b data-v-c7d6a117>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-c7d6a117> · <b data-v-c7d6a117>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-c7d6a117> · <b data-v-c7d6a117>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-c7d6a117> · <b data-v-c7d6a117>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-c7d6a117> · <b data-v-c7d6a117>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-c7d6a117> · <b data-v-c7d6a117>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-c7d6a117> · <b data-v-c7d6a117>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-c7d6a117> · 店铺带两种「不是自己建的」标记：<b data-v-c7d6a117>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-c7d6a117>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-c7d6a117> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-c7d6a117> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
+            createStaticVNode('<p class="hint" style="line-height:2;" data-v-7cbed997> · 数据默认存 IndexedDB（库 <span class="mono" data-v-7cbed997>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-7cbed997> · <b data-v-7cbed997>同步包 ≠ 整机备份</b>：<br data-v-7cbed997> 　– <b data-v-7cbed997>同步包</b>（.json + sync 标记）：导入是<b data-v-7cbed997>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-7cbed997> 　– <b data-v-7cbed997>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-7cbed997> 　– 一句话记：<b data-v-7cbed997>同步 = 覆盖成一模一样</b>，<b data-v-7cbed997>店铺包 = 按店更新合并</b>。<br data-v-7cbed997> · 三种数据包，互不混淆：<b data-v-7cbed997>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-7cbed997>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-7cbed997>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-7cbed997> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-7cbed997>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-7cbed997> · <b data-v-7cbed997>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-7cbed997> · 「共管」店铺可以随时<b data-v-7cbed997>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-7cbed997> · 代理端是本站的 <span class="mono" data-v-7cbed997>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-7cbed997> · <b data-v-7cbed997>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-7cbed997> · <b data-v-7cbed997>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-7cbed997> · <b data-v-7cbed997>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-7cbed997> · <b data-v-7cbed997>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-7cbed997> · <b data-v-7cbed997>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-7cbed997> · <b data-v-7cbed997>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-7cbed997> · <b data-v-7cbed997>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-7cbed997> · 店铺带两种「不是自己建的」标记：<b data-v-7cbed997>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-7cbed997>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-7cbed997> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-7cbed997> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
           ])])) : createCommentVNode("", true)
         ], 2),
         createBaseVNode("div", _hoisted_191, [
@@ -33052,7 +33465,7 @@ const _sfc_main$1 = {
             word: "",
             tagline: "八收三扣，盈利有数"
           }),
-          _cache[121] || (_cache[121] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.11.37", -1))
+          _cache[121] || (_cache[121] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.11.38", -1))
         ]),
         createVNode(_component_var_popup, {
           show: logOpen.value,
@@ -33404,7 +33817,7 @@ const _sfc_main$1 = {
     };
   }
 };
-const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-c7d6a117"]]);
+const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-7cbed997"]]);
 const errBox = /* @__PURE__ */ reactive({ list: [], count: 0, seen: 0 });
 let installed = false;
 const MAX = 30;
@@ -33463,393 +33876,6 @@ function errorsAsText() {
     const pad = (n2) => String(n2).padStart(2, "0");
     return "[" + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()) + "] " + x.kind + " · " + x.text;
   }).join("\n");
-}
-const AUTO_SYNC_MS = 5 * 60 * 1e3;
-const PACK_TTL_MS = 60 * 60 * 1e3;
-const MAIN_SYNC_MS = 10 * 60 * 1e3;
-const LEDGER_SYNC_MS = 15 * 60 * 1e3;
-const REDIRECT_CHECK_MS = 10 * 60 * 1e3;
-const AUTO_STATUS_EVENT = "temp-auto-status";
-function emitAutoStatus(detail) {
-  try {
-    window.dispatchEvent(new CustomEvent(AUTO_STATUS_EVENT, { detail }));
-  } catch (e) {
-  }
-}
-let timer = 0;
-let running = false;
-function stamp() {
-  const d = /* @__PURE__ */ new Date();
-  const pad = (n2) => String(n2).padStart(2, "0");
-  return d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + "-" + pad(d.getHours()) + pad(d.getMinutes());
-}
-function waitIdle() {
-  return new Promise((resolve2) => {
-    if (typeof window !== "undefined" && window.requestIdleCallback) {
-      window.requestIdleCallback(() => resolve2(), { timeout: 1800 });
-    } else setTimeout(resolve2, 30);
-  });
-}
-function parsePack(raw) {
-  let t2 = String(raw || "").replace(/^\uFEFF/, "").trim();
-  if (!t2) throw new Error("内容是空的");
-  if (/^PACK1:/i.test(t2)) {
-    const plain = LZString.decompressFromBase64(t2.slice(6).replace(/\s+/g, ""));
-    if (!plain) throw new Error("压缩包不完整");
-    return JSON.parse(plain);
-  }
-  try {
-    return JSON.parse(t2);
-  } catch (e) {
-  }
-  const a = t2.indexOf("{"), b = t2.lastIndexOf("}");
-  if (a >= 0 && b > a) return JSON.parse(t2.slice(a, b + 1));
-  throw new Error("数据包格式不对");
-}
-function isOwnFile(cfg, f) {
-  if (!cfg || !f) return false;
-  const ids = cfg.ownFileIds || [];
-  return !!(f.id && ids.includes(f.id));
-}
-function rememberOwn(cfg, f) {
-  if (!cfg || !f) return;
-  const ids = (cfg.ownFileIds || []).slice(-60);
-  if (f.id && !ids.includes(f.id)) ids.push(f.id);
-  cfg.ownFileIds = ids;
-}
-function visible(cfg, list) {
-  const cutoff = Number(cfg && cfg.lastMergedAt) || 0;
-  const oldest = Date.now() - PACK_TTL_MS;
-  return (list || []).filter((f) => {
-    if (!f || isTempMainFile(f.name) || /^__83-init/i.test(f.name)) return false;
-    if (isOwnFile(cfg, f)) return false;
-    if (cutoff && f.createdAt && f.createdAt <= cutoff) return false;
-    if (f.createdAt && f.createdAt < oldest) return false;
-    return true;
-  });
-}
-async function tempCleanup(cfg, list) {
-  if (!cfg) return list;
-  const oldest = Date.now() - PACK_TTL_MS;
-  let changed = false;
-  for (const f of list || []) {
-    if (!f.id || isTempMainFile(f.name)) continue;
-    if (!f.createdAt || f.createdAt >= oldest) continue;
-    try {
-      await deleteFile(cfg, f.id);
-      changed = true;
-    } catch (e) {
-    }
-  }
-  return changed ? await listFiles(cfg) : list;
-}
-async function tempAckCleanup(cfg, list) {
-  const ack = ledgerAckTime(cfg && cfg.ledger ? cfg.ledger : "");
-  if (!ack) return list;
-  let changed = false;
-  for (const f of list || []) {
-    if (!f.id || isTempMainFile(f.name)) continue;
-    if (!f.createdAt || f.createdAt >= ack) continue;
-    try {
-      await deleteFile(cfg, f.id);
-      changed = true;
-    } catch (e) {
-    }
-  }
-  return changed ? await listFiles(cfg) : list;
-}
-async function deleteOlderOwn(cfg, tag, keepId) {
-  if (!tag) return;
-  const ids = (cfg.ownFileIds || []).filter((id) => id && id !== keepId);
-  for (const id of ids) {
-    try {
-      await deleteFile(cfg, id);
-    } catch (e) {
-    }
-  }
-  cfg.ownFileIds = keepId ? [keepId] : [];
-}
-async function syncLedgerIfDue(cfg, storeId, force = false) {
-  if (!force && cfg.lastLedgerAt && Date.now() - Number(cfg.lastLedgerAt) < LEDGER_SYNC_MS) return;
-  try {
-    await syncTempLedger(cfg, storeId, { markSelf: true });
-    cfg.lastLedgerAt = Date.now();
-    saveFolder(storeId, cfg);
-  } catch (e) {
-  }
-}
-async function uploadCurrent(cfg, store) {
-  const rev = dataRev();
-  if (!isAgent.value && store.mine !== false && cfg.lastAutoRev === rev && cfg.lastAutoUploadAt && Date.now() - Number(cfg.lastAutoUploadAt) < PACK_TTL_MS) {
-    return false;
-  }
-  await waitIdle();
-  const pack = exportStorePack(store.id);
-  if (!pack) return false;
-  const tag = tempUploadTag(store.id);
-  cfg.memberTag = tag;
-  const prefix = isAgent.value ? "83-store-full-" : "83-store-";
-  const name2 = prefix + store.id + "-" + tag + "-" + (state.meta.deviceId || "dev") + "-" + stamp() + ".json";
-  const file = new File([JSON.stringify(pack)], name2, { type: "application/json" });
-  const up = await uploadFile(cfg, file);
-  const id = up && up.files && up.files[0] && up.files[0].id || "";
-  if (!id) throw new Error("上传后没有返回文件 id");
-  rememberOwn(cfg, { id });
-  cfg.lastAutoHash = String(rev);
-  cfg.lastAutoRev = rev;
-  cfg.lastAutoUploadAt = Date.now();
-  saveFolder(store.id, cfg);
-  try {
-    await deleteOlderOwn(cfg, tag, id);
-  } catch (e) {
-  }
-  await syncLedgerIfDue(cfg, store.id);
-  return true;
-}
-async function pullOthers(cfg, store) {
-  let list = await listFiles(cfg);
-  let merged = 0;
-  let lastTime = 0;
-  let blocked = false;
-  const candidates = visible(cfg, list);
-  for (const f of candidates) {
-    let text;
-    try {
-      text = await fetchFileText(f);
-    } catch (e) {
-      blocked = true;
-      break;
-    }
-    let pack;
-    try {
-      pack = parsePack(text);
-    } catch (e) {
-      continue;
-    }
-    if (!pack || pack.kind !== "store" && pack.kind !== "agent") continue;
-    try {
-      await importStorePack(pack);
-      merged++;
-      lastTime = Math.max(lastTime, Number(f.createdAt) || Date.now());
-      cfg.mergedFileIds = (cfg.mergedFileIds || []).slice(-60);
-      if (f.id) cfg.mergedFileIds.push(f.id);
-    } catch (e) {
-    }
-  }
-  if (merged) {
-    cfg.lastMergedAt = Math.max(Number(cfg.lastMergedAt) || 0, lastTime || Date.now());
-    await syncLedgerIfDue(cfg, store.id);
-  }
-  saveFolder(store.id, cfg);
-  return { merged, list, pending: candidates.length, blocked };
-}
-function applyRedirect(cfg, red, storeId) {
-  const next = {
-    folderId: red.folderId,
-    manageToken: red.manageToken,
-    title: (cfg.title || "临时分组") + " · 已续期",
-    url: "https://tempfile.org/" + red.folderId + "/",
-    expiresAt: red.expiresAt || 0,
-    activated: true,
-    previousFolderId: cfg.folderId,
-    ownFileIds: [],
-    mergedFileIds: [],
-    lastMergedAt: 0,
-    ledger: "",
-    mainUpdatedAt: 0,
-    lastRedirectAt: Date.now(),
-    memberTag: cfg.memberTag || ""
-  };
-  saveFolder(storeId, next);
-  try {
-    window.dispatchEvent(new CustomEvent("temp-folder-rotated", { detail: { storeId, cfg: next } }));
-  } catch (e) {
-  }
-  return next;
-}
-async function followRedirect(cfg, storeId) {
-  if (cfg.redirectTo) return applyRedirect(cfg, cfg.redirectTo, storeId);
-  if (cfg.lastRedirectAt && Date.now() - Number(cfg.lastRedirectAt) < REDIRECT_CHECK_MS) return cfg;
-  let info;
-  try {
-    info = await getFolder(cfg);
-  } catch (e) {
-    return cfg;
-  }
-  cfg.lastRedirectAt = Date.now();
-  if (info.expiresAt) cfg.expiresAt = info.expiresAt;
-  const red = parseFolderRedirect(info.title);
-  if (!red) {
-    saveFolder(storeId, cfg);
-    return cfg;
-  }
-  return applyRedirect(cfg, red, storeId);
-}
-async function maybeRotate(cfg, store) {
-  if (isAgent.value || !store || store.mine === false) return cfg;
-  if (!cfg.expiresAt || cfg.rotating) return cfg;
-  if (cfg.expiresAt - Date.now() > 20 * 60 * 1e3) return cfg;
-  cfg.rotating = true;
-  saveFolder(store.id, cfg);
-  try {
-    const fresh = await createFolder({ title: "83-" + (store.name || "店铺") + "-续期" });
-    const next = {
-      ...fresh,
-      title: (store.name || "店铺") + " · 续期分组",
-      activated: true,
-      previousFolderId: cfg.folderId,
-      ownFileIds: [],
-      mergedFileIds: [],
-      lastMergedAt: 0,
-      ledger: "",
-      mainUpdatedAt: 0,
-      memberTag: cfg.memberTag || ""
-    };
-    await writeTempMainFile(next, store.id);
-    const savedMain = loadFolder(store.id);
-    if (savedMain) {
-      next.mainUpdatedAt = savedMain.mainUpdatedAt || Date.now();
-      next.ledger = savedMain.ledger || next.ledger || "";
-      next.activated = true;
-    }
-    try {
-      await uploadCurrent(next, store);
-    } catch (e) {
-    }
-    cfg.next = {
-      folderId: next.folderId,
-      manageToken: next.manageToken,
-      expiresAt: next.expiresAt,
-      createdAt: Date.now(),
-      url: next.url
-    };
-    saveFolder(store.id, cfg);
-    try {
-      await syncTempMainFile(cfg, store.id);
-    } catch (e) {
-    }
-    try {
-      await renameFolder(cfg, folderRedirectTitle(cfg.next));
-    } catch (e) {
-    }
-    delete cfg.rotating;
-    next.previousFolder = cfg.folderId;
-    saveFolder(store.id, next);
-    try {
-      window.dispatchEvent(new CustomEvent("temp-folder-rotated", { detail: { storeId: store.id, cfg: next } }));
-    } catch (e) {
-    }
-    return next;
-  } catch (e) {
-    delete cfg.rotating;
-    saveFolder(store.id, cfg);
-    return cfg;
-  }
-}
-async function runTempAutoOnce(force = false) {
-  if (running) return { uploaded: false, merged: 0, skipped: true };
-  if (typeof document !== "undefined" && document.visibilityState === "hidden") return { uploaded: false, merged: 0 };
-  const store = activeStore.value;
-  if (!store) return { uploaded: false, merged: 0 };
-  let cfg = loadFolder(store.id);
-  if (!cfg || !cfg.folderId) {
-    if (isAgent.value || store.mine === false) return { uploaded: false, merged: 0, skipped: true };
-    try {
-      cfg = await createFolder({ title: "83-" + (store.name || "店铺") + "-自动同步" });
-      saveFolder(store.id, cfg);
-      cfg.lastRedirectAt = Date.now();
-    } catch (e) {
-      return { uploaded: false, merged: 0, skipped: true };
-    }
-  }
-  if (!force && cfg.lastAutoAt && Date.now() - Number(cfg.lastAutoAt) < AUTO_SYNC_MS) {
-    return { uploaded: false, merged: 0, skipped: true };
-  }
-  cfg = await followRedirect(cfg, store.id);
-  cfg = await maybeRotate(cfg, store);
-  if (!cfg || !cfg.folderId) return { uploaded: false, merged: 0 };
-  running = true;
-  let uploaded = false;
-  let merged = 0;
-  let listed = null;
-  let blocked = false;
-  let pending = 0;
-  let finalList = null;
-  emitAutoStatus({ storeId: store.id, running: true, status: "自动同步中，正在上传并检查新包…", at: Date.now() });
-  if (!isAgent.value && store.mine !== false && (!cfg.mainUpdatedAt || Date.now() - Number(cfg.mainUpdatedAt) >= MAIN_SYNC_MS)) {
-    try {
-      await syncTempMainFile(cfg, store.id);
-    } catch (e) {
-    }
-  }
-  try {
-    uploaded = await uploadCurrent(cfg, store);
-  } catch (e) {
-  }
-  try {
-    const pulled = await pullOthers(cfg, store);
-    merged = pulled.merged;
-    listed = pulled.list;
-    blocked = !!pulled.blocked;
-    pending = Number(pulled.pending) || 0;
-  } catch (e) {
-  }
-  try {
-    let list = listed || await listFiles(cfg);
-    list = await tempCleanup(cfg, list);
-    list = await tempAckCleanup(cfg, list);
-    finalList = list;
-    cfg.lastAutoAt = Date.now();
-    saveFolder(store.id, cfg);
-  } catch (e) {
-  } finally {
-    running = false;
-    cfg.lastAutoAt = Date.now();
-    saveFolder(store.id, cfg);
-  }
-  let status;
-  if (blocked && pending) status = "有 " + pending + " 个新包待拉取：浏览器限制直读，请点「手动下拉同步」或下载后导入";
-  else if (merged) status = "本轮已自动合并 " + merged + " 个包";
-  else if (uploaded) status = "已上传本店最新包，暂没有别人需要合并的新包";
-  else status = "已自动检查，没有新包";
-  emitAutoStatus({ storeId: store.id, running: false, status, uploaded, merged, pending, blocked, list: finalList, at: Date.now() });
-  return { uploaded, merged, pending, blocked };
-}
-function autoDue() {
-  const store = activeStore.value;
-  if (!store) return false;
-  const cfg = loadFolder(store.id);
-  if (!cfg || !cfg.folderId) return !isAgent.value && store.mine !== false;
-  return !cfg.lastAutoAt || Date.now() - Number(cfg.lastAutoAt) >= AUTO_SYNC_MS;
-}
-function autoTick() {
-  if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-  if (!autoDue()) return;
-  runTempAutoOnce();
-}
-let visibilityHandler = null;
-function startTempAutoSync() {
-  if (timer) return;
-  timer = window.setInterval(autoTick, 30 * 1e3);
-  visibilityHandler = () => {
-    if (document.visibilityState === "visible") autoTick();
-  };
-  document.addEventListener("visibilitychange", visibilityHandler);
-  window.addEventListener("pageshow", autoTick);
-  window.addEventListener("focus", autoTick);
-  autoTick();
-}
-function stopTempAutoSync() {
-  if (timer) {
-    clearInterval(timer);
-    timer = 0;
-  }
-  if (visibilityHandler) {
-    document.removeEventListener("visibilitychange", visibilityHandler);
-    visibilityHandler = null;
-  }
-  window.removeEventListener("pageshow", autoTick);
-  window.removeEventListener("focus", autoTick);
 }
 const _hoisted_1 = { class: "shell" };
 const _hoisted_2 = { class: "rail" };
