@@ -13340,7 +13340,7 @@ function decodeSnap(str) {
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return JSON.parse(new TextDecoder().decode(bytes));
 }
-function agentLink(code, base, tf, fileId) {
+function agentLink(code, base, tf, fileId, storeId) {
   const b = base || (typeof location !== "undefined" ? location.href : "http://localhost/");
   const url = new URL("agent.html", b);
   url.searchParams.set("code", code);
@@ -13349,9 +13349,10 @@ function agentLink(code, base, tf, fileId) {
     url.searchParams.set("t", tf.manageToken);
   }
   if (fileId) url.searchParams.set("p", fileId);
+  if (storeId) url.searchParams.set("sid", storeId);
   return url.href;
 }
-function agentDataLink(code, bundle, base, tf, fileId) {
+function agentDataLink(code, bundle, base, tf, fileId, storeId) {
   if (!bundle) return null;
   const c = bundle.seed.collections;
   const pack = {
@@ -13368,7 +13369,7 @@ function agentDataLink(code, bundle, base, tf, fileId) {
     },
     settings: bundle.seed.settings
   };
-  return agentLink(code, base, tf, fileId) + "&s=" + encodeSnap(pack);
+  return agentLink(code, base, tf, fileId, storeId) + "&s=" + encodeSnap(pack);
 }
 const API_BASE = "https://tempfile.org/api";
 const ORIGIN = "https://tempfile.org";
@@ -13675,6 +13676,37 @@ function currentMemberKey({ agentId, userId, email, deviceId } = {}) {
   if (userId) return "user:" + userId;
   if (email) return "user:" + email;
   return "device:" + (deviceId || "local");
+}
+const TAG_RE = /^[0-9a-z]{2}$/;
+function packageTag(name2) {
+  const p2 = String(name2 || "").replace(/\.json$/i, "").split("-");
+  if (p2[0] !== "83") return "";
+  if (p2[1] === "sync") return TAG_RE.test(p2[2] || "") ? p2[2] : "";
+  if (p2[1] === "store" && p2[2] === "full") return TAG_RE.test(p2[4] || "") ? p2[4] : "";
+  if (p2[1] === "store" || p2[1] === "agent") return TAG_RE.test(p2[3] || "") ? p2[3] : "";
+  return "";
+}
+function legacyOwnPackage(name2, deviceId) {
+  if (!deviceId) return false;
+  const text = String(name2 || "");
+  if (!/^83-(store|agent|sync)-/i.test(text)) return false;
+  return text.includes("-" + deviceId + "-");
+}
+const FOLDER_REDIRECT_PREFIX = "83R|";
+function folderRedirectTitle({ folderId, manageToken, expiresAt } = {}) {
+  const id = String(folderId || "").trim();
+  const token = String(manageToken || "").trim();
+  if (!id || !token) return "";
+  return FOLDER_REDIRECT_PREFIX + id + "|" + token + "|" + String(Number(expiresAt) || 0);
+}
+function parseFolderRedirect(title) {
+  const text = String(title || "");
+  if (!text.startsWith(FOLDER_REDIRECT_PREFIX)) return null;
+  const parts = text.slice(FOLDER_REDIRECT_PREFIX.length).split("|");
+  const folderId = String(parts[0] || "").trim();
+  const manageToken = String(parts[1] || "").trim();
+  if (!folderId || !manageToken) return null;
+  return { folderId, manageToken, expiresAt: Number(parts[2]) || 0 };
 }
 function toBase64(text) {
   const bytes = new TextEncoder().encode(text);
@@ -17144,8 +17176,8 @@ function agentLinks(agentId, opts = {}) {
   const base = siteBase();
   const tf = loadFolder(agent.parentStoreId);
   const fileId = String(opts.fileId || "");
-  const plain = agentLink(agent.code, base, tf, fileId);
-  const data = agentDataLink(agent.code, pack, base, tf, fileId);
+  const plain = agentLink(agent.code, base, tf, fileId, agent.parentStoreId);
+  const data = agentDataLink(agent.code, pack, base, tf, fileId, agent.parentStoreId);
   return { plain, data, size: data ? data.length : 0, hasFolder: !!(tf && tf.folderId && tf.manageToken), fileId };
 }
 function isTempMainFile(name2) {
@@ -17177,10 +17209,51 @@ function tempMembers(storeId) {
   }
   return list;
 }
+async function ensureAgentLinkStore({ code = "", storeId = "" } = {}) {
+  const existing = state.collections.stores.find((s) => s.id === storeId);
+  if (existing) return existing.id;
+  if (state.collections.stores.length && state.meta.activeStoreId) return state.meta.activeStoreId;
+  const id = String(storeId || "agentlink-" + Math.random().toString(36).slice(2, 8));
+  const st = {
+    id,
+    name: "代理店（待接入）",
+    mine: false,
+    coManaged: false,
+    asAgent: true,
+    ownerAgentId: "",
+    ownerAuthUserId: "",
+    warehouseIds: [],
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    placeholder: true
+  };
+  state.collections.stores = [...state.collections.stores, st];
+  state.meta.activeStoreId = id;
+  state.meta.role = ROLE.AGENT;
+  state.meta.agentId = "";
+  state.viewRole = ROLE.AGENT;
+  state.viewAgentId = "";
+  state.agentNoData = true;
+  state.agentCodeError = "";
+  touch("stores");
+  touch("meta");
+  try {
+    await flush();
+  } catch (e) {
+  }
+  return id;
+}
 async function syncTempLedger(folder, storeId, { markSelf = false } = {}) {
   if (!folder || !folder.folderId) return folder;
   const info = await getFolder(folder);
+  if (info.expiresAt) folder.expiresAt = info.expiresAt;
   const before = String(info.title || "");
+  const redirect = parseFolderRedirect(before);
+  if (redirect) {
+    folder.redirectTo = redirect;
+    saveFolder(storeId, folder);
+    return folder;
+  }
   let title = before;
   const members = tempMembers(storeId);
   title = ensureMembers(title, members);
@@ -17253,7 +17326,8 @@ function buildTempMain(folder, storeId) {
       id: folder.folderId,
       title: folder.title || "",
       url: folder.url || "https://tempfile.org/" + folder.folderId + "/",
-      expiresAt: folder.expiresAt || 0
+      expiresAt: folder.expiresAt || 0,
+      next: folder.next || null
     },
     store: {
       id: store.id,
@@ -18062,11 +18136,13 @@ async function importStorePack(remote) {
       asAgent: roleAfter === ROLE.AGENT,
       ownerAgentId: roleAfter === ROLE.AGENT ? ownAgentId || "" : "",
       sharedFrom: pack.from && pack.from.deviceId || "",
+      placeholder: false,
       createdAt: Date.now(),
       updatedAt: Date.now()
     });
   } else {
     existing.name = storeRec.name || existing.name;
+    existing.placeholder = false;
     if (grantShared) {
       existing.asAgent = false;
       existing.coManaged = true;
@@ -18127,6 +18203,9 @@ async function importStorePack(remote) {
       storeNow.warehouseIds = [...new Set((storeRec.warehouseIds || []).map((id) => remap[id] || id).filter(valid))];
     }
     storeNow.updatedAt = Date.now();
+  }
+  if (state.collections.stores.some((s) => s.placeholder && s.id !== rid)) {
+    state.collections.stores = state.collections.stores.filter((s) => !s.placeholder || s.id === rid);
   }
   const agentId = isLocalAgent ? localAgentId || (state.collections.agents.find((a) => a.parentStoreId === rid) || {}).id || "" : "";
   applyIdentity(agentId);
@@ -29574,21 +29653,6 @@ const _sfc_main$2 = {
   }
 };
 const QrCodeSheet = /* @__PURE__ */ _export_sfc(_sfc_main$2, [["__scopeId", "data-v-994f04bf"]]);
-const TAG_RE = /^[0-9a-z]{2}$/;
-function packageTag(name2) {
-  const p2 = String(name2 || "").replace(/\.json$/i, "").split("-");
-  if (p2[0] !== "83") return "";
-  if (p2[1] === "sync") return TAG_RE.test(p2[2] || "") ? p2[2] : "";
-  if (p2[1] === "store" && p2[2] === "full") return TAG_RE.test(p2[4] || "") ? p2[4] : "";
-  if (p2[1] === "store" || p2[1] === "agent") return TAG_RE.test(p2[3] || "") ? p2[3] : "";
-  return "";
-}
-function legacyOwnPackage(name2, deviceId) {
-  if (!deviceId) return false;
-  const text = String(name2 || "");
-  if (!/^83-(store|agent|sync)-/i.test(text)) return false;
-  return text.includes("-" + deviceId + "-");
-}
 const _hoisted_1$1 = { class: "page me" };
 const _hoisted_2$1 = { class: "topbar" };
 const _hoisted_3$1 = { class: "topbar-id" };
@@ -30046,6 +30110,7 @@ const _sfc_main$1 = {
         clearInterval(tfClock);
         tfClock = 0;
       }
+      window.removeEventListener("temp-folder-rotated", onFolderRotated);
     });
     function showBusy(title, text, mode = "spinner") {
       rebuild.value = { on: true, title, text, pct: mode === "spinner" ? 40 : 0, step: 0, mode };
@@ -30469,6 +30534,7 @@ const _sfc_main$1 = {
     }
     onMounted(loadUsage);
     onMounted(() => {
+      window.addEventListener("temp-folder-rotated", onFolderRotated);
       loadTf();
       tfClock = window.setInterval(() => {
         tfNow.value = Date.now();
@@ -30762,6 +30828,48 @@ const _sfc_main$1 = {
         }
       }
     }
+    function applyFolderConfig(cfg) {
+      tf.value = cfg;
+      tfFolderId.value = cfg.folderId;
+      tfToken.value = cfg.manageToken;
+    }
+    async function followFolderRedirect(cfg) {
+      if (!cfg || !cfg.folderId) return cfg;
+      try {
+        const info = await getFolder(cfg);
+        if (info.expiresAt) cfg.expiresAt = info.expiresAt;
+        const red = parseFolderRedirect(info.title);
+        if (!red) return cfg;
+        const next = {
+          folderId: red.folderId,
+          manageToken: red.manageToken,
+          title: (cfg.title || "临时分组") + " · 已续期",
+          url: "https://tempfile.org/" + red.folderId + "/",
+          expiresAt: red.expiresAt || 0,
+          activated: true,
+          previousFolderId: cfg.folderId,
+          ownFileIds: [],
+          mergedFileIds: [],
+          lastMergedAt: 0,
+          ledger: "",
+          mainUpdatedAt: 0,
+          memberTag: cfg.memberTag || ""
+        };
+        saveFolder(store.value.id, next);
+        applyFolderConfig(next);
+        tip("临时分组已续期，已切换到新分组");
+        return next;
+      } catch (e) {
+        return cfg;
+      }
+    }
+    function onFolderRotated(e) {
+      const d = e && e.detail;
+      if (!d || !store.value || d.storeId !== store.value.id || !d.cfg) return;
+      applyFolderConfig(d.cfg);
+      saveFolder(store.value.id, d.cfg);
+      tfRefresh(true);
+    }
     function visibleTempFiles(list) {
       const cutoff = Number(tf.value && tf.value.lastMergedAt) || 0;
       const oldest = Date.now() - PACK_TTL_MS$1;
@@ -30926,8 +31034,15 @@ const _sfc_main$1 = {
           }
         }
         cfg.activated = true;
-        tf.value = cfg;
+        applyFolderConfig(cfg);
         saveFolder(store.value.id, cfg);
+        const activeCfg = await followFolderRedirect(cfg);
+        if (activeCfg.folderId !== cfg.folderId) {
+          try {
+            list = await listTempFilesRetry(activeCfg);
+          } catch (e) {
+          }
+        }
         await syncGroupLedger(false);
         if (!isAgent.value && !cfg.mainUpdatedAt) {
           try {
@@ -30952,6 +31067,7 @@ const _sfc_main$1 = {
       if (!tf.value) return;
       tfBusy.value = "refresh";
       try {
+        await followFolderRedirect(tf.value);
         let list = await listTempFilesRetry(tf.value);
         await syncGroupLedger(false);
         list = await cleanupExpiredPackages(tf.value, list);
@@ -32656,7 +32772,7 @@ const _sfc_main$1 = {
             ])
           ]),
           sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_188, [..._cache[118] || (_cache[118] = [
-            createStaticVNode('<p class="hint" style="line-height:2;" data-v-9a5b084c> · 数据默认存 IndexedDB（库 <span class="mono" data-v-9a5b084c>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-9a5b084c> · <b data-v-9a5b084c>同步包 ≠ 整机备份</b>：<br data-v-9a5b084c> 　– <b data-v-9a5b084c>同步包</b>（.json + sync 标记）：导入是<b data-v-9a5b084c>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-9a5b084c> 　– <b data-v-9a5b084c>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-9a5b084c> 　– 一句话记：<b data-v-9a5b084c>同步 = 覆盖成一模一样</b>，<b data-v-9a5b084c>店铺包 = 按店更新合并</b>。<br data-v-9a5b084c> · 三种数据包，互不混淆：<b data-v-9a5b084c>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-9a5b084c>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-9a5b084c>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-9a5b084c> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-9a5b084c>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-9a5b084c> · <b data-v-9a5b084c>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-9a5b084c> · 「共管」店铺可以随时<b data-v-9a5b084c>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-9a5b084c> · 代理端是本站的 <span class="mono" data-v-9a5b084c>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-9a5b084c> · <b data-v-9a5b084c>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-9a5b084c> · <b data-v-9a5b084c>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-9a5b084c> · <b data-v-9a5b084c>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-9a5b084c> · <b data-v-9a5b084c>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-9a5b084c> · <b data-v-9a5b084c>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-9a5b084c> · <b data-v-9a5b084c>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-9a5b084c> · <b data-v-9a5b084c>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-9a5b084c> · 店铺带两种「不是自己建的」标记：<b data-v-9a5b084c>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-9a5b084c>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-9a5b084c> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-9a5b084c> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
+            createStaticVNode('<p class="hint" style="line-height:2;" data-v-958048d0> · 数据默认存 IndexedDB（库 <span class="mono" data-v-958048d0>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-958048d0> · <b data-v-958048d0>同步包 ≠ 整机备份</b>：<br data-v-958048d0> 　– <b data-v-958048d0>同步包</b>（.json + sync 标记）：导入是<b data-v-958048d0>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-958048d0> 　– <b data-v-958048d0>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-958048d0> 　– 一句话记：<b data-v-958048d0>同步 = 覆盖成一模一样</b>，<b data-v-958048d0>店铺包 = 按店更新合并</b>。<br data-v-958048d0> · 三种数据包，互不混淆：<b data-v-958048d0>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-958048d0>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-958048d0>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-958048d0> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-958048d0>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-958048d0> · <b data-v-958048d0>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-958048d0> · 「共管」店铺可以随时<b data-v-958048d0>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-958048d0> · 代理端是本站的 <span class="mono" data-v-958048d0>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-958048d0> · <b data-v-958048d0>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-958048d0> · <b data-v-958048d0>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-958048d0> · <b data-v-958048d0>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-958048d0> · <b data-v-958048d0>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-958048d0> · <b data-v-958048d0>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-958048d0> · <b data-v-958048d0>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-958048d0> · <b data-v-958048d0>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-958048d0> · 店铺带两种「不是自己建的」标记：<b data-v-958048d0>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-958048d0>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-958048d0> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-958048d0> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
           ])])) : createCommentVNode("", true)
         ], 2),
         createBaseVNode("div", _hoisted_189, [
@@ -32665,7 +32781,7 @@ const _sfc_main$1 = {
             word: "",
             tagline: "八收三扣，盈利有数"
           }),
-          _cache[119] || (_cache[119] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.11.28", -1))
+          _cache[119] || (_cache[119] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.11.30", -1))
         ]),
         createVNode(_component_var_popup, {
           show: logOpen.value,
@@ -33017,7 +33133,7 @@ const _sfc_main$1 = {
     };
   }
 };
-const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-9a5b084c"]]);
+const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-958048d0"]]);
 const errBox = /* @__PURE__ */ reactive({ list: [], count: 0, seen: 0 });
 let installed = false;
 const MAX = 30;
@@ -33079,6 +33195,9 @@ function errorsAsText() {
 }
 const AUTO_SYNC_MS = 5 * 60 * 1e3;
 const PACK_TTL_MS = 60 * 60 * 1e3;
+const MAIN_SYNC_MS = 30 * 60 * 1e3;
+const LEDGER_SYNC_MS = 15 * 60 * 1e3;
+const REDIRECT_CHECK_MS = 10 * 60 * 1e3;
 let timer = 0;
 let running = false;
 let nextAt = 0;
@@ -33171,30 +33290,22 @@ async function tempAckCleanup(cfg, list) {
 }
 async function deleteOlderOwn(cfg, tag, keepId) {
   if (!tag) return;
-  let list;
-  try {
-    list = await listFiles(cfg);
-  } catch (e) {
-    return;
+  const ids = (cfg.ownFileIds || []).filter((id) => id && id !== keepId);
+  for (const id of ids) {
+    try {
+      await deleteFile(cfg, id);
+    } catch (e) {
+    }
   }
-  for (const f of list) {
-    if (!f.id || f.id === keepId || isTempMainFile(f.name)) continue;
-    const ft = packageTag(f.name);
-    if (ft) {
-      if (ft === tag) {
-        try {
-          await deleteFile(cfg, f.id);
-        } catch (e) {
-        }
-      }
-      continue;
-    }
-    if (legacyOwnPackage(f.name, state.meta.deviceId || "")) {
-      try {
-        await deleteFile(cfg, f.id);
-      } catch (e) {
-      }
-    }
+  cfg.ownFileIds = keepId ? [keepId] : [];
+}
+async function syncLedgerIfDue(cfg, storeId, force = false) {
+  if (!force && cfg.lastLedgerAt && Date.now() - Number(cfg.lastLedgerAt) < LEDGER_SYNC_MS) return;
+  try {
+    await syncTempLedger(cfg, storeId, { markSelf: true });
+    cfg.lastLedgerAt = Date.now();
+    saveFolder(storeId, cfg);
+  } catch (e) {
   }
 }
 async function uploadCurrent(cfg, store) {
@@ -33212,16 +33323,12 @@ async function uploadCurrent(cfg, store) {
   rememberOwn(cfg, { id });
   cfg.lastAutoHash = fp;
   cfg.lastAutoUploadAt = Date.now();
-  cfg.mainUpdatedAt = cfg.mainUpdatedAt || Date.now();
   saveFolder(store.id, cfg);
   try {
     await deleteOlderOwn(cfg, tag, id);
   } catch (e) {
   }
-  try {
-    await syncTempLedger(cfg, store.id, { markSelf: true });
-  } catch (e) {
-  }
+  await syncLedgerIfDue(cfg, store.id);
   return true;
 }
 async function pullOthers(cfg, store) {
@@ -33257,34 +33364,146 @@ async function pullOthers(cfg, store) {
   }
   if (merged) {
     cfg.lastMergedAt = Math.max(Number(cfg.lastMergedAt) || 0, lastTime || Date.now());
-    try {
-      await syncTempLedger(cfg, store.id, { markSelf: true });
-    } catch (e) {
-    }
+    await syncLedgerIfDue(cfg, store.id);
   }
   saveFolder(store.id, cfg);
-  return merged;
+  return { merged, list };
+}
+function applyRedirect(cfg, red, storeId) {
+  const next = {
+    folderId: red.folderId,
+    manageToken: red.manageToken,
+    title: (cfg.title || "临时分组") + " · 已续期",
+    url: "https://tempfile.org/" + red.folderId + "/",
+    expiresAt: red.expiresAt || 0,
+    activated: true,
+    previousFolderId: cfg.folderId,
+    ownFileIds: [],
+    mergedFileIds: [],
+    lastMergedAt: 0,
+    ledger: "",
+    mainUpdatedAt: 0,
+    lastRedirectAt: Date.now(),
+    memberTag: cfg.memberTag || ""
+  };
+  saveFolder(storeId, next);
+  try {
+    window.dispatchEvent(new CustomEvent("temp-folder-rotated", { detail: { storeId, cfg: next } }));
+  } catch (e) {
+  }
+  return next;
+}
+async function followRedirect(cfg, storeId) {
+  if (cfg.redirectTo) return applyRedirect(cfg, cfg.redirectTo, storeId);
+  if (cfg.lastRedirectAt && Date.now() - Number(cfg.lastRedirectAt) < REDIRECT_CHECK_MS) return cfg;
+  let info;
+  try {
+    info = await getFolder(cfg);
+  } catch (e) {
+    return cfg;
+  }
+  cfg.lastRedirectAt = Date.now();
+  if (info.expiresAt) cfg.expiresAt = info.expiresAt;
+  const red = parseFolderRedirect(info.title);
+  if (!red) {
+    saveFolder(storeId, cfg);
+    return cfg;
+  }
+  return applyRedirect(cfg, red, storeId);
+}
+async function maybeRotate(cfg, store) {
+  if (isAgent.value || !store || store.mine === false) return cfg;
+  if (!cfg.expiresAt || cfg.rotating) return cfg;
+  if (cfg.expiresAt - Date.now() > 12 * 3600 * 1e3) return cfg;
+  cfg.rotating = true;
+  saveFolder(store.id, cfg);
+  try {
+    const fresh = await createFolder({ title: "83-" + (store.name || "店铺") + "-续期" });
+    const next = {
+      ...fresh,
+      title: (store.name || "店铺") + " · 续期分组",
+      activated: true,
+      previousFolderId: cfg.folderId,
+      ownFileIds: [],
+      mergedFileIds: [],
+      lastMergedAt: 0,
+      ledger: "",
+      mainUpdatedAt: 0,
+      memberTag: cfg.memberTag || ""
+    };
+    await writeTempMainFile(next, store.id);
+    const savedMain = loadFolder(store.id);
+    if (savedMain) {
+      next.mainUpdatedAt = savedMain.mainUpdatedAt || Date.now();
+      next.ledger = savedMain.ledger || next.ledger || "";
+      next.activated = true;
+    }
+    try {
+      await uploadCurrent(next, store);
+    } catch (e) {
+    }
+    cfg.next = {
+      folderId: next.folderId,
+      manageToken: next.manageToken,
+      expiresAt: next.expiresAt,
+      createdAt: Date.now(),
+      url: next.url
+    };
+    saveFolder(store.id, cfg);
+    try {
+      await syncTempMainFile(cfg, store.id);
+    } catch (e) {
+    }
+    try {
+      await renameFolder(cfg, folderRedirectTitle(cfg.next));
+    } catch (e) {
+    }
+    delete cfg.rotating;
+    next.previousFolder = cfg.folderId;
+    saveFolder(store.id, next);
+    try {
+      window.dispatchEvent(new CustomEvent("temp-folder-rotated", { detail: { storeId: store.id, cfg: next } }));
+    } catch (e) {
+    }
+    return next;
+  } catch (e) {
+    delete cfg.rotating;
+    saveFolder(store.id, cfg);
+    return cfg;
+  }
 }
 async function runTempAutoOnce() {
   if (running) return { uploaded: false, merged: 0 };
   if (typeof document !== "undefined" && document.visibilityState === "hidden") return { uploaded: false, merged: 0 };
   const store = activeStore.value;
   if (!store) return { uploaded: false, merged: 0 };
-  const cfg = loadFolder(store.id);
+  let cfg = loadFolder(store.id);
+  if (!cfg || !cfg.folderId) return { uploaded: false, merged: 0 };
+  cfg = await followRedirect(cfg, store.id);
+  cfg = await maybeRotate(cfg, store);
   if (!cfg || !cfg.folderId) return { uploaded: false, merged: 0 };
   running = true;
   let uploaded = false;
   let merged = 0;
+  let listed = null;
+  if (!isAgent.value && store.mine !== false && (!cfg.mainUpdatedAt || Date.now() - Number(cfg.mainUpdatedAt) >= MAIN_SYNC_MS)) {
+    try {
+      await syncTempMainFile(cfg, store.id);
+    } catch (e) {
+    }
+  }
   try {
     uploaded = await uploadCurrent(cfg, store);
   } catch (e) {
   }
   try {
-    merged = await pullOthers(cfg, store);
+    const pulled = await pullOthers(cfg, store);
+    merged = pulled.merged;
+    listed = pulled.list;
   } catch (e) {
   }
   try {
-    let list = await listFiles(cfg);
+    let list = listed || await listFiles(cfg);
     list = await tempCleanup(cfg, list);
     list = await tempAckCleanup(cfg, list);
     cfg.lastAutoAt = Date.now();
@@ -33509,12 +33728,20 @@ const _sfc_main = {
     }
     function agentPackFromUrl() {
       const p2 = new URLSearchParams(location.search);
-      const id = p2.get("p") || p2.get("pack") || "";
-      if (!id) return null;
+      const raw = p2.get("p") || p2.get("pack") || "";
+      if (!raw) return null;
+      const isUrl = /^https?:/i.test(raw);
+      const url = isUrl ? raw : "https://tempfile.org/" + encodeURIComponent(raw) + "/download";
+      let id = raw;
+      try {
+        const parts = new URL(url).pathname.split("/").filter(Boolean);
+        id = parts[parts.length - 2] || parts[parts.length - 1] || raw;
+      } catch (e) {
+      }
       return {
         id,
         name: "代理数据包-" + id + ".json",
-        downloadUrl: "https://tempfile.org/" + encodeURIComponent(id) + "/download"
+        downloadUrl: url
       };
     }
     function downloadAgentPack() {
@@ -33541,13 +33768,26 @@ const _sfc_main = {
         sessionStorage.setItem(key, "1");
       } catch (e) {
       }
-      setTimeout(downloadAgentPack, 800);
+      setTimeout(async () => {
+        try {
+          const text = await fetchFileText(agentPack.value);
+          const pack = JSON.parse(String(text || "").replace(/^\uFEFF/, "").trim());
+          await importStorePack(pack);
+          state.agentNoData = false;
+          tip("代理数据包已自动导入");
+        } catch (e) {
+          downloadAgentPack();
+        }
+      }, 800);
     }
-    function bindFolderFromUrl() {
+    async function bindFolderFromUrl() {
       const tf = folderFromUrl();
-      if (!tf.folderId || !tf.manageToken) return;
-      const sid = state.meta.activeStoreId;
-      if (!sid) return;
+      const sidParam = new URLSearchParams(location.search).get("sid") || "";
+      let sid = state.meta.activeStoreId;
+      if (!sid && agentCodeFromUrl()) {
+        sid = await ensureAgentLinkStore({ code: agentCodeFromUrl(), storeId: sidParam });
+      }
+      if (!tf.folderId || !tf.manageToken || !sid) return;
       saveFolder(sid, {
         folderId: tf.folderId,
         manageToken: tf.manageToken,
@@ -33757,7 +33997,7 @@ const _sfc_main = {
       startBootTimer();
       try {
         await initApp({ agentCode: agentCodeFromUrl() });
-        bindFolderFromUrl();
+        await bindFolderFromUrl();
         agentPack.value = agentPackFromUrl();
         maybeAutoDownloadAgentPack();
       } catch (e) {
