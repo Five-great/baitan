@@ -13520,6 +13520,8 @@ const ERR_TEXT = {
   FOLDER_FORBIDDEN: "分组 Token 不对",
   FOLDER_FULL: "分组文件已满（最多 50 个）",
   FILE_TOO_LARGE: "单文件超过 100MB",
+  HTTP_429: "tempfile 免费额度已用完，等 1 小时额度恢复再试",
+  HTTP_403: "tempfile 拒绝访问：分组 Token 可能已失效",
   "Invalid folder identifier": "FolderId 格式不对"
 };
 function folderGoneError() {
@@ -17414,7 +17416,22 @@ function tempMembers(storeId) {
 }
 async function ensureAgentLinkStore({ code = "", storeId = "" } = {}) {
   const existing = storeId ? state.collections.stores.find((s) => s.id === storeId) : null;
-  if (existing) return existing.id;
+  if (existing) {
+    state.meta.activeStoreId = existing.id;
+    state.meta.updatedAt = Date.now();
+    if (existing.asAgent || existing.placeholder) {
+      state.meta.role = ROLE.AGENT;
+      state.viewRole = ROLE.AGENT;
+      if (existing.ownerAgentId) state.meta.agentId = existing.ownerAgentId;
+      state.agentNoData = !!(existing.placeholder || state.agentNoData);
+    }
+    touch("meta");
+    try {
+      await flush();
+    } catch (e) {
+    }
+    return existing.id;
+  }
   const id = String(storeId || "agentlink-" + Math.random().toString(36).slice(2, 8));
   const st = {
     id,
@@ -30342,7 +30359,7 @@ const _sfc_main$2 = {
   }
 };
 const QrCodeSheet = /* @__PURE__ */ _export_sfc(_sfc_main$2, [["__scopeId", "data-v-fc593c07"]]);
-const AUTO_SYNC_MS = 5 * 60 * 1e3;
+const AUTO_SYNC_MS = 10 * 60 * 1e3;
 const PACK_TTL_MS$1 = 60 * 60 * 1e3;
 const MAIN_SYNC_MS = 10 * 60 * 1e3;
 const LEDGER_SYNC_MS$1 = 15 * 60 * 1e3;
@@ -30364,6 +30381,12 @@ function tempAutoHeld() {
     return Number(localStorage.getItem(HOLD_KEY) || 0) > Date.now();
   } catch (e) {
     return false;
+  }
+}
+function releaseTempAuto() {
+  try {
+    localStorage.removeItem(HOLD_KEY);
+  } catch (e) {
   }
 }
 function emitAutoStatus(detail) {
@@ -30478,7 +30501,7 @@ async function syncLedgerIfDue(cfg, storeId, force = false) {
 }
 async function uploadCurrent(cfg, store) {
   const rev = dataRev();
-  if (!isAgent.value && store.mine !== false && cfg.lastAutoRev === rev && cfg.lastAutoUploadAt && Date.now() - Number(cfg.lastAutoUploadAt) < PACK_TTL_MS$1) {
+  if (cfg.lastAutoRev === rev && cfg.lastAutoUploadAt && Date.now() - Number(cfg.lastAutoUploadAt) < PACK_TTL_MS$1) {
     return false;
   }
   await waitIdle();
@@ -30659,6 +30682,9 @@ async function runTempAutoOnce(force = false) {
   if (!store) return { uploaded: false, merged: 0 };
   let cfg = loadFolder(store.id);
   if (!cfg || !cfg.folderId) return { uploaded: false, merged: 0, skipped: true };
+  if (!force && cfg.quotaBlockedAt && Date.now() - Number(cfg.quotaBlockedAt) < 20 * 60 * 1e3) {
+    return { uploaded: false, merged: 0, skipped: true };
+  }
   if (!force && cfg.lastAutoAt && Date.now() - Number(cfg.lastAutoAt) < AUTO_SYNC_MS) {
     return { uploaded: false, merged: 0, skipped: true };
   }
@@ -30673,10 +30699,10 @@ async function runTempAutoOnce(force = false) {
   let finalList = null;
   let statusDone = false;
   try {
-    if (!folderExpired(cfg) && !cfg.folderMissing) cfg = await followRedirect(cfg, store.id);
+    if (!folderExpired(cfg)) cfg = await followRedirect(cfg, store.id);
     cfg = await maybeRotate(cfg, store);
     if (!cfg || !cfg.folderId) return { uploaded: false, merged: 0, skipped: true };
-    if (folderExpired(cfg) || cfg.folderMissing) {
+    if (folderExpired(cfg)) {
       emitAutoStatus({ storeId: store.id, running: false, status: "临时分组已过期，等店主续期或重新接入", at: Date.now() });
       statusDone = true;
       return { uploaded: false, merged: 0, skipped: true };
@@ -30688,9 +30714,15 @@ async function runTempAutoOnce(force = false) {
       } catch (e) {
       }
     }
+    let uploadError = null;
     try {
       uploaded = await uploadCurrent(cfg, store);
     } catch (e) {
+      uploadError = e;
+      if (e && (e.code === "HTTP_429" || e.status === 429)) {
+        cfg.quotaBlockedAt = Date.now();
+        saveFolder(store.id, cfg);
+      }
     }
     try {
       const pulled = await pullOthers(cfg, store);
@@ -30711,7 +30743,8 @@ async function runTempAutoOnce(force = false) {
     delete cfg.syncStartedAt;
     saveFolder(store.id, cfg);
     let status;
-    if (blocked && pending) status = "有 " + pending + " 个新包待拉取：浏览器限制直读，请点「手动下拉同步」或下载后导入";
+    if (uploadError) status = "自动上传失败：" + (uploadError.message || "网络错误");
+    else if (blocked && pending) status = "有 " + pending + " 个新包待拉取：浏览器限制直读，请点「手动下拉同步」或下载后导入";
     else if (merged) status = "本轮已自动合并 " + merged + " 个包";
     else if (uploaded) status = "已上传本店最新包，暂没有别人需要合并的新包";
     else status = "已自动检查，没有新包";
@@ -32209,6 +32242,7 @@ const _sfc_main$1 = {
         saveFolder(store.value.id, f);
         busyStep("完成", 100);
         tfFiles.value = [];
+        releaseTempAuto();
         tip("临时分组已建：主文件已写入，1 小时内有效（测试）");
       } catch (e) {
         tfErr(e);
@@ -32256,6 +32290,13 @@ const _sfc_main$1 = {
           if (!(e && (e.code === "FOLDER_NOT_FOUND" || e.code === "FOLDER_EXPIRED"))) throw e;
         }
         if (!info || info.empty) {
+          try {
+            const list = await listFiles(cfg);
+            if (Array.isArray(list)) info = { ...info || cfg, empty: false, title: info && info.title || "" };
+          } catch (e) {
+          }
+        }
+        if (!info || info.empty) {
           if (isAgent.value) {
             const e = new Error("分组里还没有店主的主文件，确认链接完整或让店主先刷新一次");
             e.code = "FOLDER_NOT_FOUND";
@@ -32279,6 +32320,7 @@ const _sfc_main$1 = {
         saveFolder(store.value.id, cfg);
         tfFiles.value = [];
         tfError.value = "";
+        releaseTempAuto();
         busyStep("完成", 100);
         tip("已绑定，文件列表点「刷新文件」再看");
       } catch (e) {
@@ -32340,6 +32382,7 @@ const _sfc_main$1 = {
         }
       } finally {
         if (tfBusy.value === "refresh") tfBusy.value = "";
+        releaseTempAuto();
         refreshReqStats();
       }
     }
@@ -33082,7 +33125,7 @@ const _sfc_main$1 = {
           sec.value.data ? (openBlock(), createElementBlock("div", _hoisted_52, [
             _cache[86] || (_cache[86] = createBaseVNode("div", { class: "sync-note" }, [
               createBaseVNode("b", null, "默认：临时分组自动同步"),
-              createBaseVNode("span", null, "只同步当前店铺，给店主、代理、共管之间交换合并；每 5 分钟上传/拉取一次。换设备的全部店铺 + 设置，走下面的「跨设备用户同步」，手动导出/导入，不自动同步。")
+              createBaseVNode("span", null, "只同步当前店铺，给店主、代理、共管之间交换合并；每 10 分钟上传/拉取一次。换设备的全部店铺 + 设置，走下面的「跨设备用户同步」，手动导出/导入，不自动同步。")
             ], -1)),
             unref(inWeChat) ? (openBlock(), createElementBlock("div", _hoisted_53, [
               createVNode(_sfc_main$p, {
@@ -33187,12 +33230,12 @@ const _sfc_main$1 = {
               createBaseVNode("div", _hoisted_71, [
                 createTextVNode(toDisplayString(unref(isAgent) ? "自动同步上传的是代理店全量包（商品/仓库/库存/订单/挂单）；店主会自动下拉合并。手动「交账包」仍只交自己的订单/流水。" : "上传到分组；代理的全量包会被自动下拉合并，也可点「手动下拉同步」。"), 1),
                 _cache[67] || (_cache[67] = createBaseVNode("br", null, null, -1)),
-                _cache[68] || (_cache[68] = createTextVNode("自动同步：每 5 分钟上传/拉取一次；关闭页面/息屏超过 5 分钟后再打开或唤醒，会按上次同步时间立刻补一轮；每个成员只保留最新一份，上传新包会自动删自己的旧包；数据包上传 1 小时后自动删除（主文件保留）。", -1))
+                _cache[68] || (_cache[68] = createTextVNode("自动同步：每 10 分钟上传/拉取一次；关闭页面/息屏超过 10 分钟后再打开或唤醒，会按上次同步时间立刻补一轮；每个成员只保留最新一份，上传新包会自动删自己的旧包；数据包上传 1 小时后自动删除（主文件保留）。", -1))
               ]),
               createBaseVNode("div", {
                 class: "hint",
                 style: normalizeStyle({ color: autoRunning.value ? "var(--jade)" : "var(--ink-3)", marginTop: "2px" })
-              }, " 自动同步：按上次更新时间判断，超过 5 分钟就补一轮 · " + toDisplayString(autoRunning.value ? "正在同步…" : autoStatus.value || "等待下一轮"), 5),
+              }, " 自动同步：按上次更新时间判断，超过 10 分钟或数据有变化就补一轮 · " + toDisplayString(autoRunning.value ? "正在同步…" : autoStatus.value || "等待下一轮"), 5),
               createBaseVNode("button", {
                 class: "row",
                 disabled: !!tfBusy.value,
@@ -34013,7 +34056,7 @@ const _sfc_main$1 = {
             ])
           ]),
           sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_190, [..._cache[125] || (_cache[125] = [
-            createStaticVNode('<p class="hint" style="line-height:2;" data-v-5896e234> · 数据默认存 IndexedDB（库 <span class="mono" data-v-5896e234>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-5896e234> · <b data-v-5896e234>同步包 ≠ 整机备份</b>：<br data-v-5896e234> 　– <b data-v-5896e234>同步包</b>（.json + sync 标记）：导入是<b data-v-5896e234>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-5896e234> 　– <b data-v-5896e234>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-5896e234> 　– 一句话记：<b data-v-5896e234>同步 = 覆盖成一模一样</b>，<b data-v-5896e234>店铺包 = 按店更新合并</b>。<br data-v-5896e234> · 三种数据包，互不混淆：<b data-v-5896e234>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-5896e234>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-5896e234>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-5896e234> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-5896e234>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-5896e234> · <b data-v-5896e234>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-5896e234> · 「共管」店铺可以随时<b data-v-5896e234>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-5896e234> · 代理端是本站的 <span class="mono" data-v-5896e234>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-5896e234> · <b data-v-5896e234>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-5896e234> · <b data-v-5896e234>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-5896e234> · <b data-v-5896e234>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-5896e234> · <b data-v-5896e234>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-5896e234> · <b data-v-5896e234>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-5896e234> · <b data-v-5896e234>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-5896e234> · <b data-v-5896e234>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-5896e234> · 店铺带两种「不是自己建的」标记：<b data-v-5896e234>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-5896e234>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-5896e234> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-5896e234> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
+            createStaticVNode('<p class="hint" style="line-height:2;" data-v-7cfcb2c7> · 数据默认存 IndexedDB（库 <span class="mono" data-v-7cfcb2c7>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-7cfcb2c7> · <b data-v-7cfcb2c7>同步包 ≠ 整机备份</b>：<br data-v-7cfcb2c7> 　– <b data-v-7cfcb2c7>同步包</b>（.json + sync 标记）：导入是<b data-v-7cfcb2c7>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-7cfcb2c7> 　– <b data-v-7cfcb2c7>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-7cfcb2c7> 　– 一句话记：<b data-v-7cfcb2c7>同步 = 覆盖成一模一样</b>，<b data-v-7cfcb2c7>店铺包 = 按店更新合并</b>。<br data-v-7cfcb2c7> · 三种数据包，互不混淆：<b data-v-7cfcb2c7>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-7cfcb2c7>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-7cfcb2c7>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-7cfcb2c7> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-7cfcb2c7>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-7cfcb2c7> · <b data-v-7cfcb2c7>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-7cfcb2c7> · 「共管」店铺可以随时<b data-v-7cfcb2c7>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-7cfcb2c7> · 代理端是本站的 <span class="mono" data-v-7cfcb2c7>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-7cfcb2c7> · <b data-v-7cfcb2c7>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-7cfcb2c7> · <b data-v-7cfcb2c7>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-7cfcb2c7> · <b data-v-7cfcb2c7>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-7cfcb2c7> · <b data-v-7cfcb2c7>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-7cfcb2c7> · <b data-v-7cfcb2c7>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-7cfcb2c7> · <b data-v-7cfcb2c7>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-7cfcb2c7> · <b data-v-7cfcb2c7>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-7cfcb2c7> · 店铺带两种「不是自己建的」标记：<b data-v-7cfcb2c7>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-7cfcb2c7>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-7cfcb2c7> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-7cfcb2c7> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
           ])])) : createCommentVNode("", true)
         ], 2),
         createBaseVNode("div", _hoisted_191, [
@@ -34022,7 +34065,7 @@ const _sfc_main$1 = {
             word: "",
             tagline: "八收三扣，盈利有数"
           }),
-          _cache[126] || (_cache[126] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.11.46", -1))
+          _cache[126] || (_cache[126] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.11.47", -1))
         ]),
         createVNode(_component_var_popup, {
           show: logOpen.value,
@@ -34376,7 +34419,7 @@ const _sfc_main$1 = {
     };
   }
 };
-const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-5896e234"]]);
+const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-7cfcb2c7"]]);
 const errBox = /* @__PURE__ */ reactive({ list: [], count: 0, seen: 0 });
 let installed = false;
 const MAX = 30;
