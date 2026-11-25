@@ -14022,7 +14022,7 @@ const MAIN_VERSION = 3;
 const OWNER_CODE = "o01";
 const MAIN_FILE_PREFIX = "83-main-";
 const ROLE_PREFIX = { owner: "o", agent: "a", shared: "s" };
-const CODE_RE = /^([oasm])?([0-9a-z]{2})$/i;
+const CODE_RE = /^(?:[oasm][0-9a-z]{2}|[0-9]{2})$/i;
 function pad2(n2) {
   return String(Math.max(0, Math.floor(Number(n2) || 0))).padStart(2, "0");
 }
@@ -14205,15 +14205,23 @@ function mainFileName({ storeId, code, deviceId, at = Date.now() }) {
   const d = new Date(at);
   const p2 = (n2) => String(n2).padStart(2, "0");
   const stamp2 = d.getFullYear() + p2(d.getMonth() + 1) + p2(d.getDate()) + "-" + p2(d.getHours()) + p2(d.getMinutes());
-  return MAIN_FILE_PREFIX + String(storeId || "store") + "-" + String(code || "m00") + "-" + String(deviceId || "dev").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 16) + "-" + stamp2 + ".json";
+  const storePart = String(storeId || "store").replace(/-/g, "_").replace(/[^a-zA-Z0-9_]/g, "");
+  return MAIN_FILE_PREFIX + storePart + "-" + String(code || "m00") + "-" + String(deviceId || "dev").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 16) + "-" + stamp2 + ".json";
 }
 function parseMainFileName(name2) {
   const n2 = String(name2 || "").replace(/\.json$/i, "");
   if (!n2.startsWith(MAIN_FILE_PREFIX)) return null;
   const p2 = n2.slice(MAIN_FILE_PREFIX.length).split("-");
-  const storeId = p2[0] || "";
-  const code = isMemberCode(p2[1]) ? p2[1] : "";
-  return { storeId, code, legacy: !code };
+  let codeIdx = -1;
+  for (let i = 0; i < p2.length; i++) {
+    if (isMemberCode(p2[i])) {
+      codeIdx = i;
+      break;
+    }
+  }
+  if (codeIdx < 0) return { storeId: p2.join("-").replace(/_/g, "-"), code: "", legacy: true };
+  const storeId = p2.slice(0, codeIdx).join("-").replace(/_/g, "-");
+  return { storeId, code: p2[codeIdx], legacy: false };
 }
 function fnv(text) {
   let h2 = 2166136261;
@@ -14240,6 +14248,8 @@ async function identityHashOf(text) {
 const KEY = "stall3:temp-config";
 const TEMP_CONFIG_DEFAULTS = {
   env: "test",
+  /* 现场手动调试时先关自动；控制台 set({autoSyncEnabled:true}) 再恢复 */
+  autoSyncEnabled: false,
   /* 自动上传/下拉一轮的间隔 */
   autoSyncMinutes: 5,
   /* 主文件到点更新间隔；和 auto 同频，但可单独调 */
@@ -14275,6 +14285,7 @@ function getTempConfig() {
   return {
     ...d,
     ...saved,
+    autoSyncEnabled: saved.autoSyncEnabled === true,
     autoSyncMinutes: clampNum(saved.autoSyncMinutes, 1, 120, d.autoSyncMinutes),
     mainUpdateMinutes: clampNum(saved.mainUpdateMinutes, 1, 120, d.mainUpdateMinutes),
     folderExpiryHours: clampNum(saved.folderExpiryHours, 1, 168, d.folderExpiryHours),
@@ -17956,7 +17967,6 @@ async function syncTempLedger(folder, storeId, { markSelf = false } = {}) {
   const members = tempMembers(storeId);
   title = ensureMembers(title, members);
   if (markSelf) title = markMember(title, tempMemberCode(storeId), Date.now());
-  if (title !== before) await renameFolder(folder, title);
   folder.ledger = title;
   folder.remoteTitle = title;
   saveFolder(storeId, folder);
@@ -29874,6 +29884,16 @@ function applyRedirect(cfg, red, storeId) {
 }
 async function followRedirect(cfg, storeId) {
   if (cfg.redirectTo) return applyRedirect(cfg, cfg.redirectTo, storeId);
+  if (cfg.next && cfg.next.folderId) {
+    if (folderExpired(cfg)) return applyRedirect(cfg, cfg.next, storeId);
+    return cfg;
+  }
+  const expiresAt = Number(cfg.expiresAt) || 0;
+  const nearExpiry = !!expiresAt && expiresAt - Date.now() < 30 * 60 * 1e3;
+  if (!expiresAt || !nearExpiry) {
+    if (!expiresAt && cfg.lastRedirectAt && Date.now() - Number(cfg.lastRedirectAt) < REDIRECT_CHECK_MS) return cfg;
+    if (expiresAt) return cfg;
+  }
   if (cfg.lastRedirectAt && Date.now() - Number(cfg.lastRedirectAt) < REDIRECT_CHECK_MS) return cfg;
   let info;
   try {
@@ -29962,6 +29982,10 @@ async function maybeRotate(cfg, store, signal) {
   }
 }
 async function runTempAutoOnce(force = false) {
+  if (!force && !getTempConfig().autoSyncEnabled) {
+    logData("自动同步暂停", { reason: "现场手动调试，autoSyncEnabled=false；要恢复用 stallTempConfig.set({autoSyncEnabled:true})" });
+    return { uploaded: false, merged: 0, skipped: true };
+  }
   if (running) {
     logData("自动同步跳过", { reason: "上一轮还在跑" });
     return { uploaded: false, merged: 0, skipped: true };
@@ -30112,6 +30136,7 @@ async function runTempAutoOnce(force = false) {
   }
 }
 function autoDue() {
+  if (!getTempConfig().autoSyncEnabled) return false;
   if (tempAutoHeld()) return false;
   const store = activeStore.value;
   if (!store) return false;
@@ -33058,6 +33083,8 @@ const _sfc_main$1 = {
         busyStep("写入分组主文件…", 70);
         await writeTempMainFile(f, store.value.id);
         f.mainUpdatedAt = Date.now();
+        f.lastAutoAt = Date.now();
+        f.lastRedirectAt = Date.now();
         f.activated = true;
         tf.value = f;
         saveFolder(store.value.id, f);
@@ -33284,6 +33311,10 @@ const _sfc_main$1 = {
         busyStep("导出本店数据…", 45);
         busyStep("上传独立单文件…", 70);
         const r = await uploadCurrentPack(pack, "本店全量包");
+        if (tf.value) {
+          tf.value.lastAutoAt = Date.now();
+          saveFolder(store.value.id, tf.value);
+        }
         busyStep("完成", 100);
         tip(r.mainError ? "数据包已上传，但主文件更新失败：" + (r.mainError.message || "网络错误") : "已上传并更新主文件：" + fmtBytes(r.info ? r.info.size : 0));
       } catch (e) {
@@ -34089,7 +34120,7 @@ const _sfc_main$1 = {
               createBaseVNode("div", _hoisted_73, [
                 createTextVNode(toDisplayString(unref(isAgent) ? "自动同步上传的是代理店全量包（商品/仓库/库存/订单/挂单）；店主会自动下拉合并。手动上传也是全量包，不再区分「交账包」。" : "上传到分组；代理的全量包会被自动下拉合并，也可点「手动下拉同步」。"), 1),
                 _cache[68] || (_cache[68] = createBaseVNode("br", null, null, -1)),
-                createTextVNode("自动同步：每 " + toDisplayString(tempCfg.value.autoSyncMinutes) + " 分钟一轮；主文件 " + toDisplayString(tempCfg.value.mainUpdateMinutes) + " 分钟更新一次；关闭页面/息屏超过 " + toDisplayString(tempCfg.value.autoSyncMinutes) + " 分钟后再打开或唤醒，会按上次同步时间补一轮；切店/手动操作/页面隐藏会中断当前这一轮。分组里只放主文件；数据包和初始包走独立单文件，服务端文件最长 " + toDisplayString(tempCfg.value.initialFileExpiryHours) + " 小时，初始链接按 " + toDisplayString(tempCfg.value.initialValidMinutes) + " 分钟业务有效期判过期。", 1)
+                createTextVNode(toDisplayString(tempCfg.value.autoSyncEnabled ? "自动同步：每 " + tempCfg.value.autoSyncMinutes + " 分钟一轮；主文件 " + tempCfg.value.mainUpdateMinutes + " 分钟更新一次；关闭页面/息屏超过 " + tempCfg.value.autoSyncMinutes + " 分钟后再打开或唤醒，会按上次同步时间补一轮；切店/手动操作/页面隐藏会中断当前这一轮。" : "自动同步已暂停（现场手动调试），手动上传/手动下拉仍可用。") + "分组里只放主文件；数据包和初始包走独立单文件，服务端文件最长 " + toDisplayString(tempCfg.value.initialFileExpiryHours) + " 小时，初始链接按 " + toDisplayString(tempCfg.value.initialValidMinutes) + " 分钟业务有效期判过期。", 1)
               ]),
               createBaseVNode("div", {
                 class: "hint",
@@ -34898,7 +34929,7 @@ const _sfc_main$1 = {
             ])
           ]),
           sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_190, [..._cache[123] || (_cache[123] = [
-            createStaticVNode('<p class="hint" style="line-height:2;" data-v-0bc1f2ce> · 数据默认存 IndexedDB（库 <span class="mono" data-v-0bc1f2ce>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-0bc1f2ce> · <b data-v-0bc1f2ce>同步包 ≠ 整机备份</b>：<br data-v-0bc1f2ce> 　– <b data-v-0bc1f2ce>同步包</b>（.json + sync 标记）：导入是<b data-v-0bc1f2ce>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-0bc1f2ce> 　– <b data-v-0bc1f2ce>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-0bc1f2ce> 　– 一句话记：<b data-v-0bc1f2ce>同步 = 覆盖成一模一样</b>，<b data-v-0bc1f2ce>店铺包 = 按店更新合并</b>。<br data-v-0bc1f2ce> · 三种数据包，互不混淆：<b data-v-0bc1f2ce>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-0bc1f2ce>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-0bc1f2ce>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-0bc1f2ce> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-0bc1f2ce>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-0bc1f2ce> · <b data-v-0bc1f2ce>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-0bc1f2ce> · 「共管」店铺可以随时<b data-v-0bc1f2ce>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-0bc1f2ce> · 代理端是本站的 <span class="mono" data-v-0bc1f2ce>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-0bc1f2ce> · <b data-v-0bc1f2ce>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-0bc1f2ce> · <b data-v-0bc1f2ce>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-0bc1f2ce> · <b data-v-0bc1f2ce>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-0bc1f2ce> · <b data-v-0bc1f2ce>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-0bc1f2ce> · <b data-v-0bc1f2ce>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-0bc1f2ce> · <b data-v-0bc1f2ce>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-0bc1f2ce> · <b data-v-0bc1f2ce>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-0bc1f2ce> · 店铺带两种「不是自己建的」标记：<b data-v-0bc1f2ce>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-0bc1f2ce>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-0bc1f2ce> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-0bc1f2ce> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
+            createStaticVNode('<p class="hint" style="line-height:2;" data-v-45abdb07> · 数据默认存 IndexedDB（库 <span class="mono" data-v-45abdb07>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-45abdb07> · <b data-v-45abdb07>同步包 ≠ 整机备份</b>：<br data-v-45abdb07> 　– <b data-v-45abdb07>同步包</b>（.json + sync 标记）：导入是<b data-v-45abdb07>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-45abdb07> 　– <b data-v-45abdb07>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-45abdb07> 　– 一句话记：<b data-v-45abdb07>同步 = 覆盖成一模一样</b>，<b data-v-45abdb07>店铺包 = 按店更新合并</b>。<br data-v-45abdb07> · 三种数据包，互不混淆：<b data-v-45abdb07>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-45abdb07>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-45abdb07>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-45abdb07> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-45abdb07>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-45abdb07> · <b data-v-45abdb07>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-45abdb07> · 「共管」店铺可以随时<b data-v-45abdb07>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-45abdb07> · 代理端是本站的 <span class="mono" data-v-45abdb07>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-45abdb07> · <b data-v-45abdb07>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-45abdb07> · <b data-v-45abdb07>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-45abdb07> · <b data-v-45abdb07>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-45abdb07> · <b data-v-45abdb07>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-45abdb07> · <b data-v-45abdb07>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-45abdb07> · <b data-v-45abdb07>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-45abdb07> · <b data-v-45abdb07>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-45abdb07> · 店铺带两种「不是自己建的」标记：<b data-v-45abdb07>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-45abdb07>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-45abdb07> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-45abdb07> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
           ])])) : createCommentVNode("", true)
         ], 2),
         createBaseVNode("div", _hoisted_191, [
@@ -35261,7 +35292,7 @@ const _sfc_main$1 = {
     };
   }
 };
-const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-0bc1f2ce"]]);
+const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-45abdb07"]]);
 const errBox = /* @__PURE__ */ reactive({ list: [], count: 0, seen: 0 });
 let installed = false;
 const MAX = 30;
