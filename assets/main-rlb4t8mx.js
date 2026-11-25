@@ -20970,8 +20970,8 @@ const _hoisted_31$9 = {
 const _hoisted_32$9 = ["data-on"];
 const _hoisted_33$9 = ["data-on", "onClick"];
 const _hoisted_34$9 = ["data-on"];
-const _hoisted_35$8 = { class: "rr-l" };
-const _hoisted_36$6 = { class: "pay-total" };
+const _hoisted_35$9 = { class: "rr-l" };
+const _hoisted_36$7 = { class: "pay-total" };
 const _hoisted_37$6 = { class: "tnum" };
 const _hoisted_38$6 = {
   key: 2,
@@ -21120,9 +21120,10 @@ const _sfc_main$j = {
     const listW = /* @__PURE__ */ ref(360);
     const twoCardW = computed(() => sellLayout.value === "two" ? Math.max(120, Math.floor((listW.value - 8) / 2)) : listW.value);
     const twoImgH = computed(() => Math.round(twoCardW.value * 3 / 4));
-    const twoRowH = computed(() => twoImgH.value + 126);
-    const oneImgW = computed(() => Math.round(Math.min(158, Math.max(124, listW.value * 0.38))));
-    const oneRowH = computed(() => Math.round(oneImgW.value * 3 / 4));
+    const twoRowH = computed(() => twoImgH.value + 132);
+    const oneImgH0 = computed(() => Math.round(Math.min(132, Math.max(116, listW.value * 0.42 * 0.75))));
+    const oneRowH = computed(() => oneImgH0.value);
+    const oneImgW = computed(() => Math.round(oneRowH.value * 4 / 3));
     const layoutMetrics = computed(() => sellLayout.value === "two" ? { perRow: 2, rowH: twoRowH.value, gap: 8 } : { perRow: 1, rowH: oneRowH.value, gap: 8 });
     const rowStride = computed(() => layoutMetrics.value.rowH + layoutMetrics.value.gap);
     const totalRows = computed(() => Math.ceil(list.value.length / layoutMetrics.value.perRow));
@@ -21662,7 +21663,7 @@ const _sfc_main$j = {
                   "data-on": roundOffOn.value,
                   onClick: toggleRoundOff
                 }, [
-                  createBaseVNode("span", _hoisted_35$8, [
+                  createBaseVNode("span", _hoisted_35$9, [
                     _cache[22] || (_cache[22] = createBaseVNode("b", null, "抹零", -1)),
                     createBaseVNode("small", null, "抹掉 " + toDisplayString(unref(money)(tail.value)) + " 零头，实收 " + toDisplayString(unref(money)(Math.floor(total.value))), 1)
                   ]),
@@ -21676,7 +21677,7 @@ const _sfc_main$j = {
                 }, null, 512), [
                   [vModelText, remarkInput.value]
                 ]),
-                createBaseVNode("div", _hoisted_36$6, [
+                createBaseVNode("div", _hoisted_36$7, [
                   createBaseVNode("span", null, [
                     _cache[23] || (_cache[23] = createTextVNode("应收", -1)),
                     discount.value ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [
@@ -21935,7 +21936,7 @@ const _sfc_main$j = {
     };
   }
 };
-const SellSheet = /* @__PURE__ */ _export_sfc(_sfc_main$j, [["__scopeId", "data-v-2b3515a4"]]);
+const SellSheet = /* @__PURE__ */ _export_sfc(_sfc_main$j, [["__scopeId", "data-v-3856cac6"]]);
 const nav = /* @__PURE__ */ reactive({
   view: "home",
   /* 【跳转】-别的页面要"直接打开某一单/某一条仓库流水"时，把目标 id 放这儿，
@@ -22047,7 +22048,7 @@ const _hoisted_34$8 = {
   key: 0,
   class: "empty"
 };
-const _hoisted_35$7 = {
+const _hoisted_35$8 = {
   class: "hint",
   style: { "text-align": "center", "margin-top": "18px" }
 };
@@ -22353,7 +22354,7 @@ const _sfc_main$i = {
             createTextVNode("点上面的「手动开单」，选货、收款就完事", -1)
           ])])) : createCommentVNode("", true)
         ]),
-        createBaseVNode("p", _hoisted_35$7, " 数据存在本机 " + toDisplayString(unref(state).storageKind) + "，可以导出 JSON 同步到别的设备 ", 1),
+        createBaseVNode("p", _hoisted_35$8, " 数据存在本机 " + toDisplayString(unref(state).storageKind) + "，可以导出 JSON 同步到别的设备 ", 1),
         createVNode(SellSheet, {
           show: sellOpen.value,
           "onUpdate:show": [
@@ -23822,8 +23823,8 @@ const _hoisted_33$7 = {
   class: "acts"
 };
 const _hoisted_34$7 = ["disabled", "onClick"];
-const _hoisted_35$6 = ["disabled", "onClick"];
-const _hoisted_36$5 = ["onClick"];
+const _hoisted_35$7 = ["disabled", "onClick"];
+const _hoisted_36$6 = ["onClick"];
 const _hoisted_37$5 = ["onClick"];
 const _hoisted_38$5 = {
   key: 2,
@@ -24309,7 +24310,7 @@ const _sfc_main$c = {
                                 name: "down",
                                 size: 11
                               })
-                            ], 8, _hoisted_35$6),
+                            ], 8, _hoisted_35$7),
                             createBaseVNode("button", {
                               class: "mini icon-only sm",
                               "aria-label": "改名",
@@ -24320,7 +24321,7 @@ const _sfc_main$c = {
                                 name: "edit",
                                 size: 12
                               })
-                            ], 8, _hoisted_36$5),
+                            ], 8, _hoisted_36$6),
                             createBaseVNode("button", {
                               class: "mini icon-only sm danger",
                               "aria-label": "删除二级分类",
@@ -24703,28 +24704,33 @@ const _hoisted_23$8 = {
 };
 const _hoisted_24$7 = ["onClick"];
 const _hoisted_25$7 = { class: "meta" };
-const _hoisted_26$6 = {
+const _hoisted_26$6 = ["title"];
+const _hoisted_27$6 = {
+  key: 0,
+  class: "p-badges"
+};
+const _hoisted_28$6 = {
   key: 0,
   class: "low-badge"
 };
-const _hoisted_27$6 = {
+const _hoisted_29$6 = {
   key: 1,
   class: "share-badge"
 };
-const _hoisted_28$6 = ["title"];
-const _hoisted_29$6 = {
-  key: 0,
+const _hoisted_30$6 = ["title"];
+const _hoisted_31$6 = {
+  key: 1,
   class: "p-desc"
 };
-const _hoisted_30$6 = { class: "p-side" };
-const _hoisted_31$6 = { class: "price" };
-const _hoisted_32$6 = { class: "p-unit" };
-const _hoisted_33$6 = {
+const _hoisted_32$6 = { class: "p-side" };
+const _hoisted_33$6 = { class: "price" };
+const _hoisted_34$6 = { class: "p-unit" };
+const _hoisted_35$6 = {
   key: 1,
   class: "empty",
   style: { "grid-column": "1/-1" }
 };
-const _hoisted_34$6 = {
+const _hoisted_36$5 = {
   key: 5,
   class: "hint",
   style: { "margin-top": "20px", "text-align": "center" }
@@ -24986,29 +24992,32 @@ const _sfc_main$a = {
                 size: 96
               }, null, 8, ["product"]),
               createBaseVNode("div", _hoisted_25$7, [
-                createBaseVNode("b", null, [
-                  createTextVNode(toDisplayString(p2.name) + " ", 1),
-                  p2.lowStock && sq(p2) <= p2.lowStock ? (openBlock(), createElementBlock("span", _hoisted_26$6, "补货")) : createCommentVNode("", true),
-                  p2.storeId && store.value && p2.storeId !== store.value.id ? (openBlock(), createElementBlock("span", _hoisted_27$6, "仓库共享")) : createCommentVNode("", true),
+                createBaseVNode("b", {
+                  class: "p-name",
+                  title: p2.name
+                }, toDisplayString(p2.name), 9, _hoisted_26$6),
+                p2.lowStock && sq(p2) <= p2.lowStock || p2.storeId && store.value && p2.storeId !== store.value.id || shares.value[p2.id] ? (openBlock(), createElementBlock("div", _hoisted_27$6, [
+                  p2.lowStock && sq(p2) <= p2.lowStock ? (openBlock(), createElementBlock("span", _hoisted_28$6, "补货")) : createCommentVNode("", true),
+                  p2.storeId && store.value && p2.storeId !== store.value.id ? (openBlock(), createElementBlock("span", _hoisted_29$6, "仓库共享")) : createCommentVNode("", true),
                   shares.value[p2.id] ? (openBlock(), createElementBlock("span", {
                     key: 2,
                     class: "share-badge out",
                     title: "共享给：" + shares.value[p2.id].join("、")
-                  }, "共享给 " + toDisplayString(shares.value[p2.id].length) + " 店", 9, _hoisted_28$6)) : createCommentVNode("", true)
-                ]),
-                p2.desc ? (openBlock(), createElementBlock("span", _hoisted_29$6, toDisplayString(p2.desc), 1)) : createCommentVNode("", true),
+                  }, "共享给 " + toDisplayString(shares.value[p2.id].length) + " 店", 9, _hoisted_30$6)) : createCommentVNode("", true)
+                ])) : createCommentVNode("", true),
+                p2.desc ? (openBlock(), createElementBlock("span", _hoisted_31$6, toDisplayString(p2.desc), 1)) : createCommentVNode("", true),
                 createBaseVNode("span", {
                   class: normalizeClass(["p-stock", { low: p2.lowStock && sq(p2) <= p2.lowStock }])
                 }, " 店 " + toDisplayString(unref(fmtQty)(sq(p2), "")) + " · 总 " + toDisplayString(unref(fmtQty)(tq(p2), p2.unit)), 3)
               ]),
-              createBaseVNode("div", _hoisted_30$6, [
-                createBaseVNode("div", _hoisted_31$6, [
+              createBaseVNode("div", _hoisted_32$6, [
+                createBaseVNode("div", _hoisted_33$6, [
                   createVNode(MoneyText, {
                     value: p2.price,
                     label: p2.name + "·售价"
                   }, null, 8, ["value", "label"])
                 ]),
-                createBaseVNode("div", _hoisted_32$6, "/" + toDisplayString(p2.unit), 1)
+                createBaseVNode("div", _hoisted_34$6, "/" + toDisplayString(p2.unit), 1)
               ])
             ], 10, _hoisted_24$7);
           }), 128)),
@@ -25018,12 +25027,12 @@ const _sfc_main$a = {
             style: { "grid-column": "1/-1" },
             onClick: _cache[8] || (_cache[8] = ($event) => pageLimit.value += PAGE)
           }, " 还有 " + toDisplayString(restList.value) + " 个商品 · 再看 " + toDisplayString(Math.min(PAGE, restList.value)) + " 个 ", 1)) : createCommentVNode("", true),
-          !list.value.length ? (openBlock(), createElementBlock("div", _hoisted_33$6, [..._cache[18] || (_cache[18] = [
+          !list.value.length ? (openBlock(), createElementBlock("div", _hoisted_35$6, [..._cache[18] || (_cache[18] = [
             createBaseVNode("b", null, "本店还没有商品", -1),
             createTextVNode("点右上角 + 新增，或去仓库页把有货的仓库挂到本店 —— 仓库里商品的分类和商品会自动带到本店 ", -1)
           ])])) : createCommentVNode("", true)
         ]),
-        unref(showCost) ? (openBlock(), createElementBlock("p", _hoisted_34$6, " 售价 −（商品成本 + 其他成本）= 单件毛利；成本为 0 的商品不计入毛利 ")) : createCommentVNode("", true),
+        unref(showCost) ? (openBlock(), createElementBlock("p", _hoisted_36$5, " 售价 −（商品成本 + 其他成本）= 单件毛利；成本为 0 的商品不计入毛利 ")) : createCommentVNode("", true),
         createVNode(ProductEditor, {
           show: editorOpen.value,
           "onUpdate:show": _cache[9] || (_cache[9] = ($event) => editorOpen.value = $event),
@@ -25046,7 +25055,7 @@ const _sfc_main$a = {
     };
   }
 };
-const ProductsView = /* @__PURE__ */ _export_sfc(_sfc_main$a, [["__scopeId", "data-v-b68e5af1"]]);
+const ProductsView = /* @__PURE__ */ _export_sfc(_sfc_main$a, [["__scopeId", "data-v-f9079a5a"]]);
 const _hoisted_1$9 = { class: "page" };
 const _hoisted_2$9 = { class: "topbar" };
 const _hoisted_3$9 = { class: "wh-sum" };
@@ -35832,7 +35841,7 @@ const _sfc_main$1 = {
             ])
           ]),
           sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_194, [..._cache[124] || (_cache[124] = [
-            createStaticVNode('<p class="hint" style="line-height:2;" data-v-222b20b3> · 数据默认存 IndexedDB（库 <span class="mono" data-v-222b20b3>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-222b20b3> · <b data-v-222b20b3>同步包 ≠ 整机备份</b>：<br data-v-222b20b3> 　– <b data-v-222b20b3>同步包</b>（.json + sync 标记）：导入是<b data-v-222b20b3>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-222b20b3> 　– <b data-v-222b20b3>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-222b20b3> 　– 一句话记：<b data-v-222b20b3>同步 = 覆盖成一模一样</b>，<b data-v-222b20b3>店铺包 = 按店更新合并</b>。<br data-v-222b20b3> · 三种数据包，互不混淆：<b data-v-222b20b3>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-222b20b3>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-222b20b3>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-222b20b3> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-222b20b3>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-222b20b3> · <b data-v-222b20b3>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-222b20b3> · 「共管」店铺可以随时<b data-v-222b20b3>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-222b20b3> · 代理端是本站的 <span class="mono" data-v-222b20b3>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-222b20b3> · <b data-v-222b20b3>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-222b20b3> · <b data-v-222b20b3>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-222b20b3> · <b data-v-222b20b3>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-222b20b3> · <b data-v-222b20b3>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-222b20b3> · <b data-v-222b20b3>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-222b20b3> · <b data-v-222b20b3>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-222b20b3> · <b data-v-222b20b3>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-222b20b3> · 店铺带两种「不是自己建的」标记：<b data-v-222b20b3>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-222b20b3>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-222b20b3> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-222b20b3> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
+            createStaticVNode('<p class="hint" style="line-height:2;" data-v-ff92ee5c> · 数据默认存 IndexedDB（库 <span class="mono" data-v-ff92ee5c>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-ff92ee5c> · <b data-v-ff92ee5c>同步包 ≠ 整机备份</b>：<br data-v-ff92ee5c> 　– <b data-v-ff92ee5c>同步包</b>（.json + sync 标记）：导入是<b data-v-ff92ee5c>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-ff92ee5c> 　– <b data-v-ff92ee5c>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-ff92ee5c> 　– 一句话记：<b data-v-ff92ee5c>同步 = 覆盖成一模一样</b>，<b data-v-ff92ee5c>店铺包 = 按店更新合并</b>。<br data-v-ff92ee5c> · 三种数据包，互不混淆：<b data-v-ff92ee5c>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-ff92ee5c>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-ff92ee5c>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-ff92ee5c> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-ff92ee5c>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-ff92ee5c> · <b data-v-ff92ee5c>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-ff92ee5c> · 「共管」店铺可以随时<b data-v-ff92ee5c>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-ff92ee5c> · 代理端是本站的 <span class="mono" data-v-ff92ee5c>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-ff92ee5c> · <b data-v-ff92ee5c>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-ff92ee5c> · <b data-v-ff92ee5c>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-ff92ee5c> · <b data-v-ff92ee5c>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-ff92ee5c> · <b data-v-ff92ee5c>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-ff92ee5c> · <b data-v-ff92ee5c>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-ff92ee5c> · <b data-v-ff92ee5c>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-ff92ee5c> · <b data-v-ff92ee5c>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-ff92ee5c> · 店铺带两种「不是自己建的」标记：<b data-v-ff92ee5c>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-ff92ee5c>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-ff92ee5c> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-ff92ee5c> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
           ])])) : createCommentVNode("", true)
         ], 2),
         createBaseVNode("div", _hoisted_195, [
@@ -35841,7 +35850,7 @@ const _sfc_main$1 = {
             word: "",
             tagline: "八收三扣，盈利有数"
           }),
-          _cache[125] || (_cache[125] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.11.54", -1))
+          _cache[125] || (_cache[125] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.11.55", -1))
         ]),
         createVNode(_component_var_popup, {
           show: logOpen.value,
@@ -36199,7 +36208,7 @@ const _sfc_main$1 = {
     };
   }
 };
-const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-222b20b3"]]);
+const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-ff92ee5c"]]);
 const errBox = /* @__PURE__ */ reactive({ list: [], count: 0, seen: 0 });
 let installed = false;
 const MAX = 30;
