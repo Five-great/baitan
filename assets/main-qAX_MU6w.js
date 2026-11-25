@@ -13385,9 +13385,28 @@ const FILE_CACHE_MAX = 80;
 const listCache = /* @__PURE__ */ new Map();
 const fileCache = /* @__PURE__ */ new Map();
 const fileInflight = /* @__PURE__ */ new Map();
+const REASON_TEXT = {
+  "list-files": "列目录",
+  "read-main": "读主文件",
+  "read-main-legacy": "读旧主文件",
+  "pull-member-pack": "下拉成员包",
+  "pull-legacy-pack": "下拉旧包",
+  "upload-main": "上传主文件",
+  "upload-standalone": "上传独立包",
+  "delete-file": "删除文件",
+  "get-folder": "读分组信息",
+  "get-folder-with-token": "带 token 读分组信息",
+  "check-redirect-and-expiry": "检查续期与到期",
+  "ensure-folder-before-main": "写主文件前确认分组",
+  "refresh-folder-info": "刷新分组信息"
+};
+function translateReason(r) {
+  return REASON_TEXT[String(r || "")] || r;
+}
 function cacheLog(event, detail) {
   try {
-    console.info("[temp-data] " + event, detail || "");
+    const d = detail && typeof detail === "object" && detail.reason ? { ...detail, reason: translateReason(detail.reason) } : detail;
+    console.info("[临时数据] " + event, d || "");
   } catch (e) {
   }
 }
@@ -13463,10 +13482,10 @@ async function tfFetch(url, opts = {}) {
   try {
     const res = await fetch(url, ctl ? { ...fetchOpts, signal: ctl.signal } : fetchOpts);
     recordQuota(res);
-    cacheLog("HTTP " + (fetchOpts.method || "GET") + " " + res.status, { reason: logReason, ms: Date.now() - started, url });
+    cacheLog("请求 " + (fetchOpts.method || "GET") + " " + res.status, { reason: logReason, ms: Date.now() - started, url });
     return res;
   } catch (e) {
-    cacheLog("HTTP FAIL", { reason: logReason, ms: Date.now() - started, url, error: e && e.message });
+    cacheLog("请求失败", { reason: logReason, ms: Date.now() - started, url, error: e && e.message });
     if (e && e.name === "AbortError") throw new Error("请求超时：tempfile 连不上，检查网络后再试");
     throw e;
   } finally {
@@ -13625,7 +13644,8 @@ function normalizeFile(f) {
     url: pageUrl,
     downloadUrl,
     expiresAt: toTime(f.expiryTime || f.expiresAt),
-    createdAt
+    createdAt,
+    position: Number(f.position) || 0
   };
 }
 async function listFiles(cfg, opts = {}) {
@@ -13634,7 +13654,7 @@ async function listFiles(cfg, opts = {}) {
   const ttl = Number(opts.ttlMs) > 0 ? Number(opts.ttlMs) : LIST_CACHE_TTL_MS;
   const hit = listCache.get(key);
   if (!opts.force && hit && Date.now() - hit.at < ttl) {
-    cacheLog("LIST HIT", { reason: opts.reason || "list-files", folderId: cfg.folderId, count: hit.list.length, ageMs: Date.now() - hit.at });
+    cacheLog("目录缓存命中", { reason: opts.reason || "list-files", folderId: cfg.folderId, count: hit.list.length, ageMs: Date.now() - hit.at });
     return hit.list.map((f) => ({ ...f }));
   }
   if (fileInflight.has("list:" + key)) return await fileInflight.get("list:" + key);
@@ -13648,7 +13668,7 @@ async function listFiles(cfg, opts = {}) {
     const list = json.files || json.data && json.data.files || (Array.isArray(json) ? json : []);
     const normalized = list.map(normalizeFile).filter(Boolean).filter((f) => !/^__83-init/i.test(f.name));
     listCache.set(key, { at: Date.now(), list: normalized });
-    cacheLog("LIST MISS", { reason: opts.reason || "list-files", folderId: cfg.folderId, count: normalized.length, ms: Date.now() - started });
+    cacheLog("目录请求完成", { reason: opts.reason || "list-files", folderId: cfg.folderId, count: normalized.length, ms: Date.now() - started });
     return normalized.map((f) => ({ ...f }));
   })();
   fileInflight.set("list:" + key, promise);
@@ -13658,13 +13678,16 @@ async function listFiles(cfg, opts = {}) {
     fileInflight.delete("list:" + key);
   }
 }
-async function getFolder(cfg) {
+async function getFolder(cfg, opts = {}) {
   if (!cfg || !cfg.folderId || !cfg.manageToken) throw new Error("还没有分组凭证");
-  let res = await tfFetch(API_BASE + "/folder/" + encodeURIComponent(cfg.folderId));
+  let res = await tfFetch(API_BASE + "/folder/" + encodeURIComponent(cfg.folderId), {
+    logReason: opts.reason || "get-folder"
+  });
   if (!res.ok && res.status === 404) {
     if (cfg.expiresAt && Number(cfg.expiresAt) + 60 * 1e3 < Date.now()) throw folderGoneError();
     res = await tfFetch(API_BASE + "/folder/" + encodeURIComponent(cfg.folderId), {
-      headers: { "X-Folder-Token": cfg.manageToken }
+      headers: { "X-Folder-Token": cfg.manageToken },
+      logReason: opts.reason || "get-folder-with-token"
     });
   }
   if (!res.ok && res.status === 404) {
@@ -13720,7 +13743,7 @@ async function uploadFile(cfg, file) {
   const json = await readJson(res);
   const info = normalizeUploadResult(json, file.name);
   invalidateTempListCache(cfg);
-  cacheLog("MAIN UPLOADED", { fileId: info.id, name: info.name });
+  cacheLog("主文件已上传", { fileId: info.id, name: info.name });
   return info;
 }
 async function uploadStandaloneFile(file, { expiryHours = TEST_PACK_EXPIRY_HOURS, timeoutMs = 45e3 } = {}) {
@@ -13738,7 +13761,7 @@ async function uploadStandaloneFile(file, { expiryHours = TEST_PACK_EXPIRY_HOURS
   });
   const json = await readJson(res);
   const info = normalizeUploadResult(json, name2);
-  cacheLog("PACK UPLOADED", { fileId: info.id, name: info.name, expiryHours: hours });
+  cacheLog("数据包已上传", { fileId: info.id, name: info.name, expiryHours: hours });
   return info;
 }
 async function deleteFile(cfg, fileId) {
@@ -13752,9 +13775,14 @@ async function deleteFile(cfg, fileId) {
     },
     logReason: "delete-file"
   });
+  if (res.status === 404) {
+    invalidateTempListCache(cfg);
+    cacheLog("文件已不存在，跳过删除", { fileId, reason: "已被别人/服务端删除" });
+    return { ok: true, missing: true };
+  }
   const json = await readJson(res);
   invalidateTempListCache(cfg);
-  cacheLog("FILE DELETED", { fileId });
+  cacheLog("文件已删除", { fileId });
   return json;
 }
 async function fetchFileText(file, opts = {}) {
@@ -13764,11 +13792,11 @@ async function fetchFileText(file, opts = {}) {
   const ttl = Number(opts.ttlMs) > 0 ? Number(opts.ttlMs) : FILE_CACHE_TTL_MS;
   const hit = fileCache.get(key);
   if (!opts.force && hit && Date.now() - hit.at < ttl) {
-    cacheLog("FILE HIT", { reason: file.reason || opts.reason || "read-file", name: file.name || "", url, ageMs: Date.now() - hit.at });
+    cacheLog("文件缓存命中", { reason: file.reason || opts.reason || "read-file", name: file.name || "", url, ageMs: Date.now() - hit.at });
     return hit.text;
   }
   if (fileInflight.has("file:" + key)) {
-    cacheLog("FILE JOIN INFLIGHT", { reason: file.reason || opts.reason || "read-file", url });
+    cacheLog("等待同一文件请求", { reason: file.reason || opts.reason || "read-file", url });
     return await fileInflight.get("file:" + key);
   }
   const promise = (async () => {
@@ -13783,7 +13811,7 @@ async function fetchFileText(file, opts = {}) {
         if (oldest) fileCache.delete(oldest[0]);
       }
     }
-    cacheLog("FILE MISS", { reason: file.reason || opts.reason || "read-file", name: file.name || "", url, bytes: text.length, ms: Date.now() - started });
+    cacheLog("文件下载完成", { reason: file.reason || opts.reason || "read-file", name: file.name || "", url, bytes: text.length, ms: Date.now() - started });
     return text;
   })();
   fileInflight.set("file:" + key, promise);
@@ -14264,7 +14292,7 @@ function setTempConfig(patch = {}) {
   } catch (e) {
   }
   const cfg = getTempConfig();
-  console.info("[temp-config] 参数已更新", cfg);
+  console.info("[临时配置] 参数已更新", cfg);
   return cfg;
 }
 function resetTempConfig() {
@@ -14272,7 +14300,7 @@ function resetTempConfig() {
     localStorage.removeItem(KEY);
   } catch (e) {
   }
-  console.info("[temp-config] 已恢复默认", getTempConfig());
+  console.info("[临时配置] 已恢复默认", getTempConfig());
   return getTempConfig();
 }
 function installTempConfigConsole() {
@@ -14283,7 +14311,7 @@ function installTempConfigConsole() {
     reset: resetTempConfig,
     defaults: TEMP_CONFIG_DEFAULTS
   };
-  console.info("[temp-config] 可用 stallTempConfig.get()/set()/reset() 调参数");
+  console.info("[临时配置] 可用 stallTempConfig.get()/set()/reset() 调参数");
 }
 function toBase64(text) {
   const bytes = new TextEncoder().encode(text);
@@ -15430,7 +15458,7 @@ async function readTableFile(file) {
 }
 function dataLog(event, detail) {
   try {
-    console.info("[temp-data] " + event, detail || "");
+    console.info("[临时数据] " + event, detail || "");
   } catch (e) {
   }
 }
@@ -17915,7 +17943,7 @@ async function ensureAgentLinkStore({ code = "", storeId = "" } = {}) {
 }
 async function syncTempLedger(folder, storeId, { markSelf = false } = {}) {
   if (!folder || !folder.folderId) return folder;
-  const info = await getFolder(folder);
+  const info = await getFolder(folder, { reason: "ensure-folder-before-main" });
   if (info.expiresAt) folder.expiresAt = info.expiresAt;
   const before = String(info.title || "");
   const redirect = parseFolderRedirect(before);
@@ -18078,7 +18106,7 @@ async function writeTempMainFile(folder, storeId) {
   const file = new File([JSON.stringify(pack)], name2, { type: "application/json" });
   const info = await uploadFile(folder, file);
   if (!info || !info.id) throw new Error("主文件上传后没有返回文件 id");
-  dataLog("MAIN WRITE", {
+  dataLog("写主文件", {
     storeId,
     code,
     writerRole: pack.writer && pack.writer.role,
@@ -18106,7 +18134,7 @@ async function writeTempMainFile(folder, storeId) {
   }
   return { file: info, name: name2, pack };
 }
-async function readTempMainCopies(folder) {
+async function readTempMainCopies(folder, opts = {}) {
   let list = [];
   try {
     list = await listFiles(folder);
@@ -18114,12 +18142,59 @@ async function readTempMainCopies(folder) {
     if (e && e.code === "FOLDER_NOT_FOUND") return { copies: [], blocked: false };
     throw e;
   }
-  const mains = list.filter((f) => isTempMainFile(f.name)).slice(0, 20);
+  const skipIds = new Set(opts.skipIds || []);
+  const skipCodes = new Set(opts.skipCodes || []);
+  const mains = list.filter((f) => isTempMainFile(f.name) && !skipIds.has(f.id)).slice(0, 20);
+  const groups = /* @__PURE__ */ new Map();
+  const legacy = [];
+  for (const f of mains) {
+    const parsed = parseMainFileName(f.name);
+    if (!parsed || parsed.legacy || !parsed.code) {
+      legacy.push(f);
+      continue;
+    }
+    if (skipCodes.has(parsed.code)) continue;
+    const key = parsed.storeId + "/" + parsed.code;
+    if (!groups.has(key)) groups.set(key, { code: parsed.code, files: [] });
+    groups.get(key).files.push(f);
+  }
+  for (const group of groups.values()) {
+    group.files.sort((a, b) => {
+      const at = Number(a.createdAt) || 0;
+      const bt = Number(b.createdAt) || 0;
+      if (bt !== at) return bt - at;
+      return (Number(b.position) || 0) - (Number(a.position) || 0);
+    });
+  }
   const copies = [];
   let blocked = false;
-  for (const f of mains) {
+  let fallbacks = 0;
+  const selected = [];
+  for (const group of groups.values()) {
+    let used = null;
+    for (const f of group.files) {
+      try {
+        const text = await fetchFileText({ ...f, reason: "read-main" });
+        const raw = JSON.parse(String(text || "").replace(/^\uFEFF/, "").trim());
+        const main = normalizeMain(raw);
+        if (main) {
+          copies.push(main);
+          used = f;
+          break;
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+    if (!used) blocked = true;
+    const fellBack = !!used && used !== group.files[0];
+    if (fellBack) fallbacks += 1;
+    selected.push({ code: group.code, files: group.files.length, used: used ? used.name : "", fallback: fellBack });
+    dataLog("主文件按成员码取最新", { code: group.code, files: group.files.length, used: used ? used.name : "", fallback: fellBack });
+  }
+  for (const f of legacy) {
     try {
-      const text = await fetchFileText({ ...f, reason: "read-main" });
+      const text = await fetchFileText({ ...f, reason: "read-main-legacy" });
       const raw = JSON.parse(String(text || "").replace(/^\uFEFF/, "").trim());
       const main = normalizeMain(raw);
       if (main) copies.push(main);
@@ -18127,7 +18202,15 @@ async function readTempMainCopies(folder) {
       blocked = true;
     }
   }
-  dataLog("MAIN READ", { folderId: folder && folder.folderId, mains: mains.length, copies: copies.length, blocked });
+  dataLog("读主文件完成", {
+    folderId: folder && folder.folderId,
+    mains: mains.length,
+    codes: groups.size,
+    copies: copies.length,
+    blocked,
+    fallbacks,
+    newestOnly: selected
+  });
   return { copies, blocked };
 }
 async function cleanupOwnMainCopies(folder, storeId, code, keepId) {
@@ -18224,7 +18307,7 @@ async function uploadAgentLinkPack(agentId) {
   const file = new File([JSON.stringify(pack)], name2, { type: "application/json" });
   const fileInfo = await uploadStandaloneFile(file, { expiryHours: conf.initialFileExpiryHours });
   if (!fileInfo || !fileInfo.id) throw new Error("上传返回里没有文件 id");
-  dataLog("INITIAL PACK", { storeId, agentCode: agent.code, memberCode: code, fileId: fileInfo.id, name: name2, validUntil: pack.validUntil, expiresAt: fileInfo.expiresAt });
+  dataLog("生成初始包", { storeId, agentCode: agent.code, memberCode: code, fileId: fileInfo.id, name: name2, validUntil: pack.validUntil, expiresAt: fileInfo.expiresAt });
   const initial = {
     packId,
     downloadUrl: fileInfo.downloadUrl,
@@ -18798,7 +18881,7 @@ async function importStorePack(remote) {
   await ensureAllShardsLoaded();
   const pack = remote && !remote.collections && remote.seed ? { kind: "agent", collections: remote.seed.collections, meta: remote.seed.meta, agent: remote.agent, settings: remote.seed.settings } : remote;
   if (!pack || !pack.collections) throw new Error("这不是本程序导出的店铺数据包");
-  dataLog("IMPORT STORE PACK", { kind: pack.kind, storeId: pack.store && pack.store.id, targetStoreId: pack.targetStoreId, role: pack.meta && pack.meta.role, initial: !!pack.initial });
+  dataLog("导入店铺包", { kind: pack.kind, storeId: pack.store && pack.store.id, targetStoreId: pack.targetStoreId, role: pack.meta && pack.meta.role, initial: !!pack.initial });
   if (pack.initial && pack.validUntil && Date.now() > pack.validUntil) {
     throw new Error("初始包已过期：代理/共享链接只有 20 分钟有效期，请让店主重新复制");
   }
@@ -29428,7 +29511,7 @@ const REDIRECT_CHECK_MS = 10 * 60 * 1e3;
 const AUTO_STATUS_EVENT = "temp-auto-status";
 function logData(event, detail) {
   try {
-    console.info("[temp-auto] " + event, detail || "");
+    console.info("[自动同步] " + event, detail || "");
   } catch (e) {
   }
 }
@@ -29448,7 +29531,7 @@ function holdTempAuto(seconds = 120, reason = "manual") {
     localStorage.setItem(HOLD_KEY, String(Date.now() + seconds * 1e3));
   } catch (e) {
   }
-  logData("HOLD", { seconds, reason, activeRun: activeRun ? activeRun.storeId : "" });
+  logData("暂停自动同步", { seconds, reason, activeRun: activeRun ? activeRun.storeId : "" });
   if (activeRun) abortTempAutoForStore(activeRun.storeId, reason);
 }
 function tempAutoHeld() {
@@ -29468,7 +29551,7 @@ function abortTempAutoForStore(storeId, reason = "manual") {
   if (!activeRun) return false;
   if (storeId && activeRun.storeId !== storeId) return false;
   activeRun.reason = reason;
-  logData("ABORT", { storeId: activeRun.storeId, reason, runId: activeRun.runId });
+  logData("中断自动同步", { storeId: activeRun.storeId, reason, runId: activeRun.runId });
   try {
     activeRun.controller.abort();
   } catch (e) {
@@ -29611,7 +29694,7 @@ function isOwnerView(store) {
 async function uploadCurrent(cfg, store, signal) {
   const rev = dataRev();
   if (cfg.lastAutoRev === rev && cfg.lastAutoUploadAt && Date.now() - Number(cfg.lastAutoUploadAt) < packTtlMs()) {
-    logData("UPLOAD SKIP", { storeId: store.id, reason: "数据版本没变且上次上传还在 1 小时内", rev });
+    logData("上传跳过", { storeId: store.id, reason: "数据版本没变且上次上传还在 1 小时内", rev });
     return false;
   }
   assertActive(signal, store.id);
@@ -29619,10 +29702,10 @@ async function uploadCurrent(cfg, store, signal) {
   assertActive(signal, store.id);
   const pack = exportStorePack(store.id);
   if (!pack) {
-    logData("UPLOAD SKIP", { storeId: store.id, reason: "exportStorePack 返回空" });
+    logData("上传跳过", { storeId: store.id, reason: "exportStorePack 返回空" });
     return false;
   }
-  logData("UPLOAD START", { storeId: store.id, rev, dataRev: rev });
+  logData("上传开始", { storeId: store.id, rev, dataRev: rev });
   const code = tempMemberCode(store.id);
   const uploadedAt = Date.now();
   const packId = "pk-" + code + "-" + uploadedAt.toString(36) + "-" + Math.random().toString(36).slice(2, 6);
@@ -29662,7 +29745,7 @@ async function uploadCurrent(cfg, store, signal) {
   cfg.mainDirty = true;
   rememberOwn(cfg, { id: up.id });
   saveFolder(store.id, cfg);
-  logData("UPLOAD DONE", { storeId: store.id, fileId: up.id, name: name2, packId, audience: pack.audience });
+  logData("上传完成", { storeId: store.id, fileId: up.id, name: name2, packId, audience: pack.audience });
   return true;
 }
 async function pullOthers(cfg, store, signal) {
@@ -29671,10 +29754,11 @@ async function pullOthers(cfg, store, signal) {
   let blocked = false;
   const selfCode = tempMemberCode(store.id);
   const ownerView = isOwnerView(store);
+  const ownerOnly = !ownerView && isAgent.value;
   assertActive(signal, store.id);
   let remote = { copies: [], blocked: false };
   try {
-    remote = await readTempMainCopies(cfg);
+    remote = await readTempMainCopies(cfg, { skipIds: cfg.ownMainFileIds || [], skipCodes: [tempMemberCode(store.id)] });
   } catch (e) {
   }
   if (remote.blocked) blocked = true;
@@ -29682,6 +29766,7 @@ async function pullOthers(cfg, store, signal) {
   if (main && main.members) {
     for (const [code, mem] of Object.entries(main.members)) {
       if (code === selfCode || !mem || !mem.pack) continue;
+      if (ownerOnly && code !== OWNER_CODE) continue;
       const p2 = mem.pack;
       if (!p2.downloadUrl) continue;
       if (p2.targetStoreId && p2.targetStoreId !== store.id) continue;
@@ -29708,7 +29793,7 @@ async function pullOthers(cfg, store, signal) {
       if (!ownerView && pack.audience !== "all") continue;
       try {
         await importStorePack(pack);
-        logData("IMPORT PACK", { from: code, packId: p2.packId, storeId: store.id, audience: p2.audience });
+        logData("导入成员包", { from: code, packId: p2.packId, storeId: store.id, audience: p2.audience });
         merged++;
         cfg.mergedPackIds = (cfg.mergedPackIds || []).slice(-80);
         if (p2.packId) cfg.mergedPackIds.push(p2.packId);
@@ -29741,11 +29826,12 @@ async function pullOthers(cfg, store, signal) {
       continue;
     }
     if (!pack || pack.kind !== "store" && pack.kind !== "agent") continue;
+    if (ownerOnly && pack.kind !== "store") continue;
     if (pack.targetStoreId && pack.targetStoreId !== store.id) continue;
     if (!ownerView && pack.audience === "owner") continue;
     try {
       await importStorePack(pack);
-      logData("IMPORT LEGACY PACK", { file: f.name, fileId: f.id, storeId: store.id });
+      logData("导入旧包", { file: f.name, fileId: f.id, storeId: store.id });
       merged++;
       cfg.mergedFileIds = (cfg.mergedFileIds || []).slice(-60);
       if (f.id) cfg.mergedFileIds.push(f.id);
@@ -29791,7 +29877,7 @@ async function followRedirect(cfg, storeId) {
   if (cfg.lastRedirectAt && Date.now() - Number(cfg.lastRedirectAt) < REDIRECT_CHECK_MS) return cfg;
   let info;
   try {
-    info = await getFolder(cfg);
+    info = await getFolder(cfg, { reason: "check-redirect-and-expiry" });
   } catch (e) {
     cfg.lastRedirectAt = Date.now();
     saveFolder(storeId, cfg);
@@ -29877,38 +29963,38 @@ async function maybeRotate(cfg, store, signal) {
 }
 async function runTempAutoOnce(force = false) {
   if (running) {
-    logData("RUN SKIP", { reason: "上一轮还在跑" });
+    logData("自动同步跳过", { reason: "上一轮还在跑" });
     return { uploaded: false, merged: 0, skipped: true };
   }
   if (tempAutoHeld()) {
-    logData("RUN SKIP", { reason: "被 holdTempAuto 暂停", holdUntil: localStorage.getItem(HOLD_KEY) });
+    logData("自动同步跳过", { reason: "被手动操作暂停", holdUntil: localStorage.getItem(HOLD_KEY) });
     return { uploaded: false, merged: 0, skipped: true };
   }
   if (typeof document !== "undefined" && document.visibilityState === "hidden") {
-    logData("RUN SKIP", { reason: "页面 hidden" });
+    logData("自动同步跳过", { reason: "页面隐藏" });
     return { uploaded: false, merged: 0 };
   }
   const store = activeStore.value;
   if (!store) {
-    logData("RUN SKIP", { reason: "没有 activeStore" });
+    logData("自动同步跳过", { reason: "没有当前店铺" });
     return { uploaded: false, merged: 0 };
   }
   let cfg = loadFolder(store.id);
   if (!cfg || !cfg.folderId) {
-    logData("RUN SKIP", { storeId: store.id, reason: "本店没有绑定分组" });
+    logData("自动同步跳过", { storeId: store.id, reason: "本店没有绑定分组" });
     return { uploaded: false, merged: 0, skipped: true };
   }
   const conf = getTempConfig();
   if (!force && cfg.quotaBlockedAt && Date.now() - Number(cfg.quotaBlockedAt) < 20 * 60 * 1e3) {
-    logData("RUN SKIP", { storeId: store.id, reason: "429 额度冷却中", until: Number(cfg.quotaBlockedAt) + 20 * 60 * 1e3 });
+    logData("自动同步跳过", { storeId: store.id, reason: "429 额度冷却中", until: Number(cfg.quotaBlockedAt) + 20 * 60 * 1e3 });
     return { uploaded: false, merged: 0, skipped: true };
   }
   const autoMs = conf.autoSyncMinutes * 60 * 1e3;
   if (!force && cfg.lastAutoAt && Date.now() - Number(cfg.lastAutoAt) < autoMs) {
-    logData("RUN SKIP", { storeId: store.id, reason: "未到 " + conf.autoSyncMinutes + " 分钟间隔", lastAutoAt: cfg.lastAutoAt, nextAt: Number(cfg.lastAutoAt) + autoMs });
+    logData("自动同步跳过", { storeId: store.id, reason: "未到 " + conf.autoSyncMinutes + " 分钟间隔", lastAutoAt: cfg.lastAutoAt, nextAt: Number(cfg.lastAutoAt) + autoMs });
     return { uploaded: false, merged: 0, skipped: true };
   }
-  logData("RUN START", { storeId: store.id, force, autoSyncMinutes: conf.autoSyncMinutes, mainUpdateMinutes: conf.mainUpdateMinutes, folder: cfg.folderId });
+  logData("自动同步开始", { storeId: store.id, force, autoSyncMinutes: conf.autoSyncMinutes, mainUpdateMinutes: conf.mainUpdateMinutes, folder: cfg.folderId });
   const run2 = {
     runId: String(Date.now()) + "-" + Math.random().toString(36).slice(2, 7),
     storeId: store.id,
@@ -29959,7 +30045,7 @@ async function runTempAutoOnce(force = false) {
     const mainMs = conf.mainUpdateMinutes * 60 * 1e3;
     const mainDue = !cfg.mainUpdatedAt || Date.now() - Number(cfg.mainUpdatedAt) >= mainMs || !!cfg.mainDirty;
     if (mainDue) {
-      logData("MAIN SYNC", { storeId: store.id, reason: cfg.mainDirty ? "mainDirty=true" : "距上次主文件更新超过 " + conf.mainUpdateMinutes + " 分钟", mainUpdatedAt: cfg.mainUpdatedAt });
+      logData("主文件同步", { storeId: store.id, reason: cfg.mainDirty ? "主文件有未发布改动" : "距上次主文件更新超过 " + conf.mainUpdateMinutes + " 分钟", mainUpdatedAt: cfg.mainUpdatedAt });
       try {
         await syncTempMainFile(cfg, store.id, { mergeRemote: true });
       } catch (e) {
@@ -29992,7 +30078,7 @@ async function runTempAutoOnce(force = false) {
     else if (merged) status = "本轮已自动合并 " + merged + " 个包";
     else if (uploaded) status = "已上传本店最新包，暂没有别人需要合并的新包";
     else status = "已自动检查，没有新包";
-    logData("RUN DONE", { storeId: store.id, uploaded, merged, pending, blocked, status });
+    logData("自动同步完成", { storeId: store.id, uploaded, merged, pending, blocked, status });
     emitAutoStatus({ storeId: store.id, running: false, status, uploaded, merged, pending, blocked, list: finalList, at: Date.now() });
     statusDone = true;
     return { uploaded, merged, pending, blocked };
@@ -30051,7 +30137,7 @@ function resumeTick() {
 function startTempAutoSync() {
   if (timer) return;
   installTempConfigConsole();
-  logData("START", getTempConfig());
+  logData("自动同步启动", getTempConfig());
   timer = window.setInterval(autoTick, 30 * 1e3);
   visibilityHandler = () => {
     if (document.visibilityState === "hidden") abortTempAutoForStore("", "page-hidden");
