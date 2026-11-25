@@ -20932,7 +20932,7 @@ const _hoisted_11$g = {
 const _hoisted_12$g = ["data-on"];
 const _hoisted_13$g = ["data-on", "onClick"];
 const _hoisted_14$f = { class: "meta" };
-const _hoisted_15$f = ["onClick"];
+const _hoisted_15$f = ["disabled", "onClick"];
 const _hoisted_16$f = ["value", "onChange", "onKeyup"];
 const _hoisted_17$f = ["onClick"];
 const _hoisted_18$f = {
@@ -21521,31 +21521,31 @@ const _sfc_main$j = {
                         createBaseVNode("span", null, toDisplayString(unref(money)(p2.price)) + " / " + toDisplayString(p2.unit) + " · 库存 " + toDisplayString(unref(fmtQty)(unref(storeStockOf)(p2.id), p2.unit)), 1)
                       ]),
                       createBaseVNode("div", {
-                        class: normalizeClass(["ctrl", { "full-add": qtyOf(p2.id) === 0 }])
+                        class: normalizeClass(["ctrl", { "zero-qty": qtyOf(p2.id) <= 0 }])
                       }, [
-                        qtyOf(p2.id) > 0 ? (openBlock(), createElementBlock("button", {
-                          key: 0,
+                        createBaseVNode("button", {
                           class: "round",
+                          disabled: qtyOf(p2.id) <= 0,
                           onClick: ($event) => dec(p2)
                         }, [
                           createVNode(_sfc_main$q, {
                             name: "minus",
                             size: 14
                           })
-                        ], 8, _hoisted_15$f)) : createCommentVNode("", true),
-                        qtyOf(p2.id) > 0 ? (openBlock(), createElementBlock("input", {
-                          key: 1,
+                        ], 8, _hoisted_15$f),
+                        createBaseVNode("input", {
                           class: "qty-in tnum",
                           type: "text",
                           inputmode: "decimal",
-                          value: qtyOf(p2.id),
+                          value: qtyOf(p2.id) || "",
+                          placeholder: "0",
                           onFocus: _cache[5] || (_cache[5] = (e) => e.target.select()),
                           onChange: (e) => setQty2(p2.id, e.target.value),
                           onKeyup: withKeys((e) => {
                             setQty2(p2.id, e.target.value);
                             e.target.blur();
                           }, ["enter"])
-                        }, null, 40, _hoisted_16$f)) : createCommentVNode("", true),
+                        }, null, 40, _hoisted_16$f),
                         createBaseVNode("button", {
                           class: "round jade",
                           onClick: ($event) => add2(p2)
@@ -21884,7 +21884,7 @@ const _sfc_main$j = {
     };
   }
 };
-const SellSheet = /* @__PURE__ */ _export_sfc(_sfc_main$j, [["__scopeId", "data-v-a65f0c46"]]);
+const SellSheet = /* @__PURE__ */ _export_sfc(_sfc_main$j, [["__scopeId", "data-v-09ffe40b"]]);
 const nav = /* @__PURE__ */ reactive({
   view: "home",
   /* 【跳转】-别的页面要"直接打开某一单/某一条仓库流水"时，把目标 id 放这儿，
@@ -33607,6 +33607,8 @@ const _sfc_main$1 = {
       tfError.value = msg;
       if (e && (e.code === "FOLDER_NOT_FOUND" || e.code === "FOLDER_EXPIRED")) {
         tip("分组不存在或已过期，请让店主重新建组并发新链接", "error");
+      } else if (e && (e.code === "FOLDER_STORE_MISMATCH" || e.code === "FOLDER_STORE_UNVERIFIED")) {
+        tip(msg, "error");
       } else {
         tip("tempfile：" + msg, "error");
       }
@@ -33708,6 +33710,29 @@ const _sfc_main$1 = {
             if (Array.isArray(list)) info = { ...info || cfg, empty: false, title: info && info.title || "" };
           } catch (e) {
           }
+        }
+        const remote = await readTempMainCopies(cfg, { reason: "核对分组归属" });
+        const copies = remote && Array.isArray(remote.copies) ? remote.copies : [];
+        const allowedStoreIds = [store.value.id, store.value.parentStoreId].filter(Boolean);
+        const badCopy = copies.find((c) => {
+          const sid = c && c.store && String(c.store.id || "");
+          return sid && !allowedStoreIds.includes(sid);
+        });
+        if (badCopy) {
+          const gs = badCopy.store || {};
+          const err = new Error("这个分组属于「" + (gs.name || gs.id || "另一家店") + "」，不能绑定到当前店铺「" + (store.value.name || store.value.id) + "」；不同店的数据会混在一起");
+          err.code = "FOLDER_STORE_MISMATCH";
+          throw err;
+        }
+        if (!copies.length && !info.empty) {
+          if (remote && remote.blocked) {
+            const err2 = new Error("浏览器读不到分组主文件，无法确认这个分组属于哪家店；先换直连/刷新后再接入");
+            err2.code = "FOLDER_STORE_UNVERIFIED";
+            throw err2;
+          }
+          const err = new Error("分组里没有可读取的主文件，无法确认归属；让店主先刷新一次主文件再接入");
+          err.code = "FOLDER_STORE_UNVERIFIED";
+          throw err;
         }
         if (!info || info.empty) {
           if (isAgent.value) {
@@ -35696,7 +35721,7 @@ const _sfc_main$1 = {
             ])
           ]),
           sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_194, [..._cache[124] || (_cache[124] = [
-            createStaticVNode('<p class="hint" style="line-height:2;" data-v-044595a8> · 数据默认存 IndexedDB（库 <span class="mono" data-v-044595a8>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-044595a8> · <b data-v-044595a8>同步包 ≠ 整机备份</b>：<br data-v-044595a8> 　– <b data-v-044595a8>同步包</b>（.json + sync 标记）：导入是<b data-v-044595a8>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-044595a8> 　– <b data-v-044595a8>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-044595a8> 　– 一句话记：<b data-v-044595a8>同步 = 覆盖成一模一样</b>，<b data-v-044595a8>店铺包 = 按店更新合并</b>。<br data-v-044595a8> · 三种数据包，互不混淆：<b data-v-044595a8>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-044595a8>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-044595a8>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-044595a8> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-044595a8>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-044595a8> · <b data-v-044595a8>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-044595a8> · 「共管」店铺可以随时<b data-v-044595a8>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-044595a8> · 代理端是本站的 <span class="mono" data-v-044595a8>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-044595a8> · <b data-v-044595a8>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-044595a8> · <b data-v-044595a8>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-044595a8> · <b data-v-044595a8>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-044595a8> · <b data-v-044595a8>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-044595a8> · <b data-v-044595a8>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-044595a8> · <b data-v-044595a8>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-044595a8> · <b data-v-044595a8>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-044595a8> · 店铺带两种「不是自己建的」标记：<b data-v-044595a8>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-044595a8>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-044595a8> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-044595a8> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
+            createStaticVNode('<p class="hint" style="line-height:2;" data-v-b2788616> · 数据默认存 IndexedDB（库 <span class="mono" data-v-b2788616>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-b2788616> · <b data-v-b2788616>同步包 ≠ 整机备份</b>：<br data-v-b2788616> 　– <b data-v-b2788616>同步包</b>（.json + sync 标记）：导入是<b data-v-b2788616>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-b2788616> 　– <b data-v-b2788616>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-b2788616> 　– 一句话记：<b data-v-b2788616>同步 = 覆盖成一模一样</b>，<b data-v-b2788616>店铺包 = 按店更新合并</b>。<br data-v-b2788616> · 三种数据包，互不混淆：<b data-v-b2788616>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-b2788616>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-b2788616>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-b2788616> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-b2788616>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-b2788616> · <b data-v-b2788616>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-b2788616> · 「共管」店铺可以随时<b data-v-b2788616>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-b2788616> · 代理端是本站的 <span class="mono" data-v-b2788616>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-b2788616> · <b data-v-b2788616>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-b2788616> · <b data-v-b2788616>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-b2788616> · <b data-v-b2788616>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-b2788616> · <b data-v-b2788616>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-b2788616> · <b data-v-b2788616>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-b2788616> · <b data-v-b2788616>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-b2788616> · <b data-v-b2788616>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-b2788616> · 店铺带两种「不是自己建的」标记：<b data-v-b2788616>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-b2788616>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-b2788616> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-b2788616> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
           ])])) : createCommentVNode("", true)
         ], 2),
         createBaseVNode("div", _hoisted_195, [
@@ -35705,7 +35730,7 @@ const _sfc_main$1 = {
             word: "",
             tagline: "八收三扣，盈利有数"
           }),
-          _cache[125] || (_cache[125] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.11.51", -1))
+          _cache[125] || (_cache[125] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.11.52", -1))
         ]),
         createVNode(_component_var_popup, {
           show: logOpen.value,
@@ -36063,7 +36088,7 @@ const _sfc_main$1 = {
     };
   }
 };
-const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-044595a8"]]);
+const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-b2788616"]]);
 const errBox = /* @__PURE__ */ reactive({ list: [], count: 0, seen: 0 });
 let installed = false;
 const MAX = 30;
