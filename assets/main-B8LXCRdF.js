@@ -13743,7 +13743,7 @@ async function uploadFile(cfg, file) {
   const json = await readJson(res);
   const info = normalizeUploadResult(json, file.name);
   invalidateTempListCache(cfg);
-  cacheLog("主文件已上传", { fileId: info.id, name: info.name });
+  cacheLog("主文件上传完成", { fileId: info.id, name: info.name });
   return info;
 }
 async function uploadStandaloneFile(file, { expiryHours = TEST_PACK_EXPIRY_HOURS, timeoutMs = 45e3 } = {}) {
@@ -18114,18 +18114,15 @@ async function writeTempMainFile(folder, storeId) {
   const pack = await buildTempMain(folder, storeId);
   const name2 = mainFileName({ storeId, code, deviceId: state.meta.deviceId, at: Date.now() });
   const file = new File([JSON.stringify(pack)], name2, { type: "application/json" });
-  const info = await uploadFile(folder, file);
-  if (!info || !info.id) throw new Error("主文件上传后没有返回文件 id");
-  dataLog("写主文件", {
+  dataLog("主文件开始写入", {
     storeId,
     code,
     writerRole: pack.writer && pack.writer.role,
-    policy: pack.policy,
     members: Object.keys(pack.members || {}).length,
-    fileId: info.id,
-    name: name2,
-    bytes: JSON.stringify(pack).length
+    name: name2
   });
+  const info = await uploadFile(folder, file);
+  if (!info || !info.id) throw new Error("主文件上传后没有返回文件 id");
   const oldIds = (cfg.ownMainFileIds || []).filter((id) => id && id !== info.id);
   const saved = loadFolder(storeId) || cfg;
   saved.ownMainFileIds = [info.id];
@@ -18136,6 +18133,16 @@ async function writeTempMainFile(folder, storeId) {
   saved.mainMembers = pack.members;
   saved.activated = true;
   saveFolder(storeId, saved);
+  dataLog("主文件登记完成", {
+    storeId,
+    code,
+    writerRole: pack.writer && pack.writer.role,
+    policy: pack.policy,
+    members: Object.keys(pack.members || {}).length,
+    fileId: info.id,
+    name: name2,
+    bytes: JSON.stringify(pack).length
+  });
   for (const oldId of oldIds.slice(-3)) {
     try {
       await deleteFile(folder, oldId);
@@ -18147,7 +18154,7 @@ async function writeTempMainFile(folder, storeId) {
 async function readTempMainCopies(folder, opts = {}) {
   let list = [];
   try {
-    list = await listFiles(folder);
+    list = await listFiles(folder, { reason: opts.reason || "读主文件列表" });
   } catch (e) {
     if (e && e.code === "FOLDER_NOT_FOUND") return { copies: [], blocked: false };
     throw e;
@@ -18223,11 +18230,11 @@ async function readTempMainCopies(folder, opts = {}) {
   });
   return { copies, blocked };
 }
-async function cleanupOwnMainCopies(folder, storeId, code, keepId) {
+async function cleanupOwnMainCopies(folder, storeId, code, keepId, reason = "清理同成员旧主文件") {
   if (!folder || !folder.folderId || !code) return;
   let list = [];
   try {
-    list = await listFiles(folder);
+    list = await listFiles(folder, { reason });
   } catch (e) {
     return;
   }
@@ -18247,7 +18254,7 @@ async function syncTempMainFile(folder, storeId, { mergeRemote = true, cleanupOw
   const cfg = loadFolder(storeId) || folder;
   if (mergeRemote) {
     try {
-      const remote = await readTempMainCopies(folder);
+      const remote = await readTempMainCopies(folder, { reason: "合并前读取主文件" });
       if (remote.copies.length) {
         const merged = mergeMainCopies(remote.copies);
         if (merged) {
@@ -18266,7 +18273,7 @@ async function syncTempMainFile(folder, storeId, { mergeRemote = true, cleanupOw
   saveFolder(storeId, cfg);
   const written = await writeTempMainFile(folder, storeId);
   if (cleanupOwn && written && written.file && written.file.id) {
-    await cleanupOwnMainCopies(folder, storeId, tempMemberCode(storeId), written.file.id);
+    await cleanupOwnMainCopies(folder, storeId, tempMemberCode(storeId), written.file.id, "清理同成员旧主文件");
   }
   return written;
 }
@@ -29768,7 +29775,7 @@ async function pullOthers(cfg, store, signal) {
   assertActive(signal, store.id);
   let remote = { copies: [], blocked: false };
   try {
-    remote = await readTempMainCopies(cfg, { skipIds: cfg.ownMainFileIds || [], skipCodes: [tempMemberCode(store.id)] });
+    remote = await readTempMainCopies(cfg, { skipIds: cfg.ownMainFileIds || [], skipCodes: [tempMemberCode(store.id)], reason: "自动合并读取主文件" });
   } catch (e) {
   }
   if (remote.blocked) blocked = true;
@@ -33286,7 +33293,7 @@ const _sfc_main$1 = {
       saveFolder(st.id, tf.value);
       let mainError = null;
       try {
-        await syncTempMainFile(tf.value, st.id, { mergeRemote: false });
+        await syncTempMainFile(tf.value, st.id, { mergeRemote: false, cleanupOwn: false });
         const saved = loadFolder(st.id);
         if (saved) applyFolderConfig(saved);
       } catch (e) {
@@ -33334,7 +33341,7 @@ const _sfc_main$1 = {
       const ownerView = !isAgent.value && st.mine !== false && !st.asAgent;
       let remote = { copies: [], blocked: false };
       try {
-        remote = await readTempMainCopies(tf.value);
+        remote = await readTempMainCopies(tf.value, { reason: "查看分组主文件" });
       } catch (e) {
         if (manual) tfErr(e);
         return { merged, skipped, blocked };
@@ -34929,7 +34936,7 @@ const _sfc_main$1 = {
             ])
           ]),
           sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_190, [..._cache[123] || (_cache[123] = [
-            createStaticVNode('<p class="hint" style="line-height:2;" data-v-45abdb07> · 数据默认存 IndexedDB（库 <span class="mono" data-v-45abdb07>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-45abdb07> · <b data-v-45abdb07>同步包 ≠ 整机备份</b>：<br data-v-45abdb07> 　– <b data-v-45abdb07>同步包</b>（.json + sync 标记）：导入是<b data-v-45abdb07>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-45abdb07> 　– <b data-v-45abdb07>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-45abdb07> 　– 一句话记：<b data-v-45abdb07>同步 = 覆盖成一模一样</b>，<b data-v-45abdb07>店铺包 = 按店更新合并</b>。<br data-v-45abdb07> · 三种数据包，互不混淆：<b data-v-45abdb07>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-45abdb07>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-45abdb07>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-45abdb07> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-45abdb07>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-45abdb07> · <b data-v-45abdb07>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-45abdb07> · 「共管」店铺可以随时<b data-v-45abdb07>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-45abdb07> · 代理端是本站的 <span class="mono" data-v-45abdb07>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-45abdb07> · <b data-v-45abdb07>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-45abdb07> · <b data-v-45abdb07>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-45abdb07> · <b data-v-45abdb07>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-45abdb07> · <b data-v-45abdb07>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-45abdb07> · <b data-v-45abdb07>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-45abdb07> · <b data-v-45abdb07>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-45abdb07> · <b data-v-45abdb07>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-45abdb07> · 店铺带两种「不是自己建的」标记：<b data-v-45abdb07>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-45abdb07>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-45abdb07> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-45abdb07> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
+            createStaticVNode('<p class="hint" style="line-height:2;" data-v-ea2d7356> · 数据默认存 IndexedDB（库 <span class="mono" data-v-ea2d7356>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-ea2d7356> · <b data-v-ea2d7356>同步包 ≠ 整机备份</b>：<br data-v-ea2d7356> 　– <b data-v-ea2d7356>同步包</b>（.json + sync 标记）：导入是<b data-v-ea2d7356>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-ea2d7356> 　– <b data-v-ea2d7356>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-ea2d7356> 　– 一句话记：<b data-v-ea2d7356>同步 = 覆盖成一模一样</b>，<b data-v-ea2d7356>店铺包 = 按店更新合并</b>。<br data-v-ea2d7356> · 三种数据包，互不混淆：<b data-v-ea2d7356>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-ea2d7356>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-ea2d7356>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-ea2d7356> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-ea2d7356>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-ea2d7356> · <b data-v-ea2d7356>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-ea2d7356> · 「共管」店铺可以随时<b data-v-ea2d7356>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-ea2d7356> · 代理端是本站的 <span class="mono" data-v-ea2d7356>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-ea2d7356> · <b data-v-ea2d7356>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-ea2d7356> · <b data-v-ea2d7356>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-ea2d7356> · <b data-v-ea2d7356>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-ea2d7356> · <b data-v-ea2d7356>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-ea2d7356> · <b data-v-ea2d7356>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-ea2d7356> · <b data-v-ea2d7356>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-ea2d7356> · <b data-v-ea2d7356>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-ea2d7356> · 店铺带两种「不是自己建的」标记：<b data-v-ea2d7356>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-ea2d7356>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-ea2d7356> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-ea2d7356> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
           ])])) : createCommentVNode("", true)
         ], 2),
         createBaseVNode("div", _hoisted_191, [
@@ -35292,7 +35299,7 @@ const _sfc_main$1 = {
     };
   }
 };
-const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-45abdb07"]]);
+const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-ea2d7356"]]);
 const errBox = /* @__PURE__ */ reactive({ list: [], count: 0, seen: 0 });
 let installed = false;
 const MAX = 30;
