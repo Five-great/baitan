@@ -13379,6 +13379,10 @@ const TIMEOUT_MS = 2e4;
 const REQ_LOG_KEY = "stall3:tempfile:reqlog";
 const QUOTA_KEY = "stall3:tempfile:quota";
 const REQ_WINDOW_MS = 60 * 60 * 1e3;
+const MIN_EXPIRY_HOURS = 1;
+const TEST_FOLDER_EXPIRY_HOURS = 1;
+const TEST_PACK_EXPIRY_HOURS = 1;
+const TEST_INITIAL_PACK_EXPIRY_HOURS = 1;
 function recordQuota(res) {
   try {
     const limit = res.headers.get("X-RateLimit-Limit");
@@ -13564,14 +13568,23 @@ function normalizeFile(f) {
   if (!f) return null;
   const name2 = String(f.name || f.filename || "");
   if (!name2) return null;
-  const rawUrl = String(f.downloadUrl || f.url || "");
-  let downloadUrl = rawUrl;
-  if (rawUrl && !/^https?:\/\//i.test(rawUrl)) {
+  let pageUrl = String(f.url || "");
+  let downloadUrl = String(f.downloadUrl || "");
+  if (pageUrl && !/^https?:\/\//i.test(pageUrl)) {
     try {
-      downloadUrl = new URL(rawUrl, ORIGIN).toString();
+      pageUrl = new URL(pageUrl, ORIGIN).toString();
     } catch (e) {
     }
   }
+  if (!downloadUrl && pageUrl) {
+    downloadUrl = pageUrl.replace(/\/?$/, "/") + "download";
+  } else if (downloadUrl && !/^https?:\/\//i.test(downloadUrl)) {
+    try {
+      downloadUrl = new URL(downloadUrl, ORIGIN).toString();
+    } catch (e) {
+    }
+  }
+  downloadUrl = downloadUrl.replace(/\/download\/$/, "/download");
   let createdAt = toTime(f.createdAt || f.created_at || f.uploadTime);
   if (!createdAt) {
     const m = name2.match(/(\d{8})-(\d{4})/);
@@ -13586,7 +13599,9 @@ function normalizeFile(f) {
     id: String(f.id || ""),
     name: name2,
     size: Number(f.size) || 0,
+    url: pageUrl,
     downloadUrl,
+    expiresAt: toTime(f.expiryTime || f.expiresAt),
     createdAt
   };
 }
@@ -13638,6 +13653,11 @@ async function renameFolder(cfg, title) {
   });
   return await readJson(res);
 }
+function normalizeUploadResult(json, fallbackName) {
+  const raw = json && json.files && json.files[0] || json && json.data && json.data.files && json.data.files[0] || null;
+  if (!raw) throw new Error("上传接口没有返回文件信息");
+  return normalizeFile({ ...raw, name: raw.name || fallbackName });
+}
 async function uploadFile(cfg, file) {
   if (!cfg || !cfg.folderId || !cfg.manageToken) throw new Error("还没有分组凭证");
   if (!file) throw new Error("没有要上传的文件");
@@ -13653,7 +13673,22 @@ async function uploadFile(cfg, file) {
     timeoutMs: 45e3
   });
   const json = await readJson(res);
-  return json;
+  return normalizeUploadResult(json, file.name);
+}
+async function uploadStandaloneFile(file, { expiryHours = TEST_PACK_EXPIRY_HOURS, timeoutMs = 45e3 } = {}) {
+  if (!file) throw new Error("没有要上传的文件");
+  const fd = new FormData();
+  const name2 = file.name || "83-pack-" + Date.now() + ".json";
+  fd.append("files", file, name2);
+  const hours = Math.max(MIN_EXPIRY_HOURS, Number(expiryHours) || MIN_EXPIRY_HOURS);
+  fd.append("expiryHours", String(hours));
+  const res = await tfFetch(API_BASE + "/upload/local", {
+    method: "POST",
+    body: fd,
+    timeoutMs
+  });
+  const json = await readJson(res);
+  return normalizeUploadResult(json, name2);
 }
 async function deleteFile(cfg, fileId) {
   if (!cfg || !cfg.folderId || !cfg.manageToken) throw new Error("还没有分组凭证");
@@ -13728,7 +13763,7 @@ function hashCode(text) {
   return (h2 >>> 0).toString(36).slice(-2).padStart(2, "0");
 }
 function memberCode(key) {
-  return hashCode(key);
+  return "m" + hashCode(key);
 }
 function base36(n2, width = 0) {
   const s = Math.max(0, Math.floor(Number(n2) || 0)).toString(36);
@@ -13747,7 +13782,7 @@ function parseLedger(title) {
   const entries = [];
   for (const part of parts.slice(1)) {
     const [code, off] = part.split(":");
-    if (!/^[0-9a-z]{2}$/.test(code || "")) continue;
+    if (!/^[0-9a-z]{2,3}$/.test(code || "")) continue;
     const offset = parseInt(off || "", 36);
     if (!Number.isFinite(offset)) continue;
     entries.push({ code, time: base && offset ? base + (offset - 1) * MIN_MS : 0 });
@@ -13777,7 +13812,7 @@ function ensureMembers(title, members) {
   const base = ledger ? ledger.base : Date.now();
   const entries = ledger ? ledger.entries.slice() : [];
   for (const m of members || []) {
-    const code = memberCode(m && m.key ? m.key : m);
+    const code = m && m.code && /^[0-9a-z]{2,3}$/.test(String(m.code).toLowerCase()) ? String(m.code).toLowerCase() : memberCode(m && (m.key || m.code) ? m.key || m.code : m);
     if (!code) continue;
     if (!entries.some((e) => e.code === code)) entries.push({ code, time: Number(m && m.time) || 0 });
   }
@@ -13787,7 +13822,7 @@ function ensureMembers(title, members) {
 function markMember(title, key, time) {
   const ledger = parseLedger(title);
   const entries = ledger ? ledger.entries.slice() : [];
-  const code = memberCode(key);
+  const code = /^[0-9a-z]{2,3}$/.test(String(key || "").toLowerCase()) ? String(key).toLowerCase() : memberCode(key);
   const at = Number(time) || Date.now();
   const old = entries.find((e) => e.code === code);
   if (old) old.time = Math.max(Number(old.time) || 0, at);
@@ -13801,32 +13836,13 @@ function ledgerAckTime(title) {
   for (const e of ledger.entries) min = Math.min(min, Number(e.time) || 0);
   return Number.isFinite(min) ? min : 0;
 }
-function ledgerMembers(title) {
-  const ledger = parseLedger(title);
-  if (!ledger) return [];
-  return ledger.entries.map((e) => ({ code: e.code, lastSyncAt: Number(e.time) || 0 }));
-}
 function currentMemberKey({ agentId, userId, email, deviceId } = {}) {
   if (agentId) return "agent:" + agentId;
   if (userId) return "user:" + userId;
   if (email) return "user:" + email;
   return "device:" + (deviceId || "local");
 }
-const TAG_RE = /^[0-9a-z]{2}$/;
-function packageTag(name2) {
-  const p2 = String(name2 || "").replace(/\.json$/i, "").split("-");
-  if (p2[0] !== "83") return "";
-  if (p2[1] === "sync") return TAG_RE.test(p2[2] || "") ? p2[2] : "";
-  if (p2[1] === "store" && p2[2] === "full") return TAG_RE.test(p2[4] || "") ? p2[4] : "";
-  if (p2[1] === "store" || p2[1] === "agent") return TAG_RE.test(p2[3] || "") ? p2[3] : "";
-  return "";
-}
-function legacyOwnPackage(name2, deviceId) {
-  if (!deviceId) return false;
-  const text = String(name2 || "");
-  if (!/^83-(store|agent|sync)-/i.test(text)) return false;
-  return text.includes("-" + deviceId + "-");
-}
+const TAG_RE = /^[0-9a-z]{2,3}$/;
 const FOLDER_REDIRECT_PREFIX = "83R|";
 function folderRedirectTitle({ folderId, manageToken, expiresAt } = {}) {
   const id = String(folderId || "").trim();
@@ -13847,7 +13863,12 @@ function tempFileLabel(name2) {
   const raw = String(name2 || "");
   const n2 = raw.replace(/\.json$/i, "");
   const time = fileStampTime(n2);
-  if (/^83-main-/i.test(n2)) return { kind: "main", storeId: n2.slice(8), code: "", tag: "", time };
+  if (/^83-main-/i.test(n2)) {
+    const p2 = n2.slice(8).split("-");
+    const storeId = p2[0] || "";
+    const code = TAG_RE.test(p2[1] || "") ? p2[1] : "";
+    return { kind: "main", storeId, code, tag: code, time };
+  }
   if (/^83-agentlink-/i.test(n2)) {
     const m = n2.match(/^83-agentlink-(.+?)-\d{4}-\d{2}-\d{2}/);
     return { kind: "agentlink", storeId: "", code: m ? m[1] : "", tag: "", time };
@@ -13882,6 +13903,226 @@ function fileStampTime(n2) {
     if (Number.isFinite(t2)) return t2;
   }
   return 0;
+}
+const MAIN_KIND = "tempfile-main";
+const MAIN_VERSION = 3;
+const OWNER_CODE = "o01";
+const MAIN_FILE_PREFIX = "83-main-";
+const ROLE_PREFIX = { owner: "o", agent: "a", shared: "s" };
+const CODE_RE = /^([oasm])?([0-9a-z]{2})$/i;
+function pad2(n2) {
+  return String(Math.max(0, Math.floor(Number(n2) || 0))).padStart(2, "0");
+}
+function nextMemberCode(role2, used) {
+  const prefix = ROLE_PREFIX[role2] || "m";
+  const set = new Set((used || []).map((x) => String(x || "").toLowerCase()).filter(Boolean));
+  for (let i = 1; i <= 99; i++) {
+    const code = prefix + pad2(i);
+    if (!set.has(code)) return code;
+  }
+  return prefix + "99";
+}
+function isMemberCode(code) {
+  return CODE_RE.test(String(code || ""));
+}
+function roleOfCode(code) {
+  const m = String(code || "").match(CODE_RE);
+  if (!m) return "member";
+  return m[1] === "o" ? "owner" : m[1] === "a" ? "agent" : m[1] === "s" ? "shared" : "member";
+}
+function timeOf(...vals) {
+  for (const v of vals) {
+    const n2 = Number(v) || 0;
+    if (n2) return n2;
+  }
+  return 0;
+}
+function newer(a, b, fields) {
+  if (!a) return b || null;
+  if (!b) return a;
+  const at = timeOf(...fields.map((k) => a[k]));
+  const bt = timeOf(...fields.map((k) => b[k]));
+  return bt > at ? b : a;
+}
+function normalizeMember(raw, code) {
+  if (!raw) return null;
+  const c = String(raw.code || code || "");
+  if (!isMemberCode(c)) return null;
+  const profile = {
+    storeId: String(raw.storeId || raw.profile && raw.profile.storeId || ""),
+    name: String(raw.name || raw.profile && raw.profile.name || ""),
+    role: raw.role || raw.profile && raw.profile.role || roleOfCode(c),
+    agentId: String(raw.agentId || raw.profile && raw.profile.agentId || ""),
+    parentStoreId: String(raw.parentStoreId || raw.profile && raw.profile.parentStoreId || ""),
+    userId: String(raw.userId || raw.profile && raw.profile.userId || ""),
+    email: String(raw.email || raw.profile && raw.profile.email || ""),
+    identityHash: String(raw.identityHash || raw.profile && raw.profile.identityHash || ""),
+    updatedAt: timeOf(raw.profile && raw.profile.updatedAt, raw.updatedAt)
+  };
+  const initialPack = raw.initialPack ? {
+    packId: String(raw.initialPack.packId || ""),
+    downloadUrl: String(raw.initialPack.downloadUrl || raw.initialPack.url || ""),
+    expiresAt: timeOf(raw.initialPack.expiresAt, raw.initialPack.expiryTime),
+    validUntil: timeOf(raw.initialPack.validUntil),
+    uploadedAt: timeOf(raw.initialPack.uploadedAt),
+    issuedFor: raw.initialPack.issuedFor || null,
+    claimedByHash: String(raw.initialPack.claimedByHash || "")
+  } : null;
+  const pack = raw.pack ? {
+    packId: String(raw.pack.packId || ""),
+    downloadUrl: String(raw.pack.downloadUrl || raw.pack.url || ""),
+    expiresAt: timeOf(raw.pack.expiresAt, raw.pack.expiryTime),
+    uploadedAt: timeOf(raw.pack.uploadedAt),
+    exportedAt: timeOf(raw.pack.exportedAt),
+    dataRev: raw.pack.dataRev == null ? "" : String(raw.pack.dataRev),
+    targetStoreId: String(raw.pack.targetStoreId || ""),
+    storeRole: raw.pack.storeRole || "",
+    parentStoreId: String(raw.pack.parentStoreId || ""),
+    audience: raw.pack.audience === "owner" ? "owner" : "all",
+    fileId: String(raw.pack.fileId || "")
+  } : null;
+  return {
+    code: c,
+    profile,
+    initialPack,
+    pack,
+    lastSyncAt: timeOf(raw.lastSyncAt, raw.lastSync),
+    updatedAt: timeOf(raw.updatedAt, profile.updatedAt)
+  };
+}
+function mergeMember(a, b) {
+  if (!a) return b || null;
+  if (!b) return a;
+  const profile = newer(a.profile, b.profile, ["updatedAt"]) || a.profile;
+  const initialPack = newer(a.initialPack, b.initialPack, ["uploadedAt", "expiresAt"]);
+  const pack = newer(a.pack, b.pack, ["uploadedAt", "exportedAt"]);
+  return {
+    code: a.code || b.code,
+    profile,
+    initialPack,
+    pack,
+    lastSyncAt: Math.max(timeOf(a.lastSyncAt), timeOf(b.lastSyncAt)),
+    updatedAt: Math.max(timeOf(a.updatedAt), timeOf(b.updatedAt))
+  };
+}
+function memberMapOf(raw) {
+  const map = /* @__PURE__ */ new Map();
+  const add2 = (m, key) => {
+    const nm = normalizeMember(m, key);
+    if (!nm) return;
+    map.set(nm.code, mergeMember(map.get(nm.code), nm));
+  };
+  if (Array.isArray(raw)) raw.forEach((m) => add2(m, m && m.code));
+  else if (raw && typeof raw === "object") Object.keys(raw).forEach((k) => add2(raw[k], k));
+  return map;
+}
+function normalizeMain(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  if (raw.kind !== MAIN_KIND && !raw.members && !raw.agents) return null;
+  const members = memberMapOf(raw.members);
+  for (const a of raw.agents || []) {
+    const code = a.memberCode || a.code;
+    if (!isMemberCode(code)) continue;
+    const m = normalizeMember({
+      code,
+      role: a.permission === "shared" ? "shared" : "agent",
+      name: a.name,
+      agentId: a.id,
+      parentStoreId: raw.store && raw.store.id,
+      profile: { updatedAt: a.updatedAt || a.createdAt }
+    });
+    if (m) members.set(m.code, mergeMember(members.get(m.code), m));
+  }
+  const store = raw.store || {};
+  const folder = raw.folder || {};
+  return {
+    app: raw.app || "stall-assistant",
+    kind: MAIN_KIND,
+    version: MAIN_VERSION,
+    generatedAt: timeOf(raw.generatedAt),
+    folder: {
+      id: String(folder.id || folder.folderId || ""),
+      title: String(folder.title || ""),
+      url: String(folder.url || ""),
+      expiresAt: timeOf(folder.expiresAt, folder.expiryTime),
+      next: folder.next || null
+    },
+    store: {
+      id: String(store.id || ""),
+      name: String(store.name || ""),
+      role: store.role === "agent" ? "agent" : store.role === "shared" ? "shared" : "owner",
+      ownerAuthUserId: String(store.ownerAuthUserId || ""),
+      parentStoreId: String(store.parentStoreId || ""),
+      createdAt: timeOf(store.createdAt)
+    },
+    owner: raw.owner || {},
+    writer: raw.writer || {},
+    policy: raw.policy || {},
+    members: Object.fromEntries(members),
+    counts: raw.counts || {},
+    mainUpdatedAt: timeOf(raw.mainUpdatedAt, raw.generatedAt)
+  };
+}
+function mergeMainCopies(copies) {
+  const list = (copies || []).map(normalizeMain).filter(Boolean);
+  if (!list.length) return null;
+  let base = list[0];
+  for (const m of list) {
+    if (m.store && m.store.id && (!base.store || !base.store.id)) base = m;
+    if (m.store && m.store.role === "owner" && (!base.store || base.store.role !== "owner")) base = m;
+  }
+  const members = /* @__PURE__ */ new Map();
+  let mainUpdatedAt = 0;
+  for (const m of list) {
+    for (const [code, mem] of Object.entries(m.members || {})) {
+      members.set(code, mergeMember(members.get(code), mem));
+    }
+    mainUpdatedAt = Math.max(mainUpdatedAt, timeOf(m.mainUpdatedAt, m.generatedAt));
+  }
+  return {
+    ...base,
+    kind: MAIN_KIND,
+    version: MAIN_VERSION,
+    generatedAt: Date.now(),
+    members: Object.fromEntries(members),
+    mainUpdatedAt
+  };
+}
+function mainFileName({ storeId, code, deviceId, at = Date.now() }) {
+  const d = new Date(at);
+  const p2 = (n2) => String(n2).padStart(2, "0");
+  const stamp2 = d.getFullYear() + p2(d.getMonth() + 1) + p2(d.getDate()) + "-" + p2(d.getHours()) + p2(d.getMinutes());
+  return MAIN_FILE_PREFIX + String(storeId || "store") + "-" + String(code || "m00") + "-" + String(deviceId || "dev").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 16) + "-" + stamp2 + ".json";
+}
+function parseMainFileName(name2) {
+  const n2 = String(name2 || "").replace(/\.json$/i, "");
+  if (!n2.startsWith(MAIN_FILE_PREFIX)) return null;
+  const p2 = n2.slice(MAIN_FILE_PREFIX.length).split("-");
+  const storeId = p2[0] || "";
+  const code = isMemberCode(p2[1]) ? p2[1] : "";
+  return { storeId, code, legacy: !code };
+}
+function fnv(text) {
+  let h2 = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    h2 ^= text.charCodeAt(i);
+    h2 = Math.imul(h2, 16777619);
+  }
+  return (h2 >>> 0).toString(16).padStart(8, "0");
+}
+async function identityHashOf(text) {
+  const raw = String(text || "");
+  if (!raw) return "";
+  try {
+    if (typeof crypto !== "undefined" && crypto.subtle && crypto.subtle.digest) {
+      const data = new TextEncoder().encode(raw);
+      const buf = await crypto.subtle.digest("SHA-256", data);
+      const hex = Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+      return hex.slice(0, 16);
+    }
+  } catch (e) {
+  }
+  return "fnv" + fnv(raw) + fnv(raw.split("").reverse().join(""));
 }
 function toBase64(text) {
   const bytes = new TextEncoder().encode(text);
@@ -14535,9 +14776,9 @@ function reconcileStocks(localRows, remoteRows, localOps, remoteOps, ops, report
       if (baseIsLocal) return fromR.has(opKey(o)) || at > lt;
       return fromL.has(opKey(o)) || at > rt;
     });
-    const newer = baseIsLocal ? r : l;
+    const newer2 = baseIsLocal ? r : l;
     out.push({
-      ...newer,
+      ...newer2,
       qty: round2(Number(base.qty) + sumDelta(after)),
       updatedAt: Math.max(lt, rt)
     });
@@ -15191,7 +15432,15 @@ function writeLocalIdentity(v) {
   } catch (e) {
   }
 }
+function emitTempStoreSwitch(from, to, reason = "store-switch") {
+  if (!from || from === to) return;
+  try {
+    window.dispatchEvent(new CustomEvent("temp-store-switch", { detail: { from, to, reason } }));
+  } catch (e) {
+  }
+}
 function applyIdentity(agentId) {
+  const prevStoreId = state.meta.activeStoreId;
   const agent = agentId ? state.collections.agents.find((a) => a.id === agentId) : null;
   if (agent) {
     state.viewRole = ROLE.AGENT;
@@ -15208,6 +15457,7 @@ function applyIdentity(agentId) {
   state.meta.role = state.viewRole;
   state.meta.agentId = state.viewAgentId;
   touch("meta");
+  emitTempStoreSwitch(prevStoreId, state.meta.activeStoreId, "identity-switch");
 }
 function ownerStoreOf(stores2) {
   return stores2.find((x) => !x.asAgent && (x.mine || x.coManaged)) || null;
@@ -17238,6 +17488,7 @@ function setStorePayQR(kind, url) {
   return true;
 }
 async function switchStore(id) {
+  emitTempStoreSwitch(state.meta.activeStoreId, id, "store-switch");
   await flush();
   state.meta.activeStoreId = id;
   state.meta.updatedAt = Date.now();
@@ -17276,6 +17527,27 @@ function saveStore(payload) {
   addLog("store", "新增店铺：" + name2);
   return st;
 }
+function usedMemberCodes(storeId) {
+  const used = [OWNER_CODE];
+  for (const a of state.collections.agents) {
+    if (storeId && a.parentStoreId !== storeId) continue;
+    if (a.memberCode) used.push(String(a.memberCode).toLowerCase());
+  }
+  for (const st of state.collections.stores) {
+    if (storeId && st.id !== storeId) continue;
+    if (st.memberCode) used.push(String(st.memberCode).toLowerCase());
+  }
+  return used;
+}
+function ensureAgentMemberCode(agent) {
+  if (!agent) return "";
+  if (isMemberCode(agent.memberCode)) return String(agent.memberCode).toLowerCase();
+  const used = usedMemberCodes(agent.parentStoreId);
+  agent.memberCode = nextMemberCode(agent.permission === "shared" ? "shared" : "agent", used);
+  agent.updatedAt = Date.now();
+  touch("agents");
+  return agent.memberCode;
+}
 function createAgent(payload) {
   if (!allow("agent:write")) {
     tip("只有店主能生成代理");
@@ -17297,6 +17569,7 @@ function createAgent(payload) {
     ownerName: payload.ownerName || "",
     parentStoreId: payload.parentStoreId || activeStore.value && activeStore.value.id,
     code: "AG-" + Math.random().toString(36).slice(2, 6).toUpperCase(),
+    memberCode: nextMemberCode(payload.permission === "shared" ? "shared" : "agent", usedMemberCodes(payload.parentStoreId || activeStore.value && activeStore.value.id)),
     /* 首次接入时的权限：agent=只能代卖；shared=店主主动授权后共管。
        这个字段只由店主在本机改，代理导入任何数据包都不能自行升级。 */
     permission: "agent",
@@ -17387,32 +17660,41 @@ function agentLinks(agentId, opts = {}) {
   const data = agentDataLink(agent.code, pack, base, tf, fileId, agent.parentStoreId);
   return { plain, data, size: data ? data.length : 0, hasFolder: !!(tf && tf.folderId && tf.manageToken), fileId };
 }
-function isTempMainFile(name2) {
-  return /^83-main-/i.test(String(name2 || ""));
-}
 function tempMemberKey(storeId) {
   const auth = authPack() || {};
   const st = state.collections.stores.find((s) => s.id === storeId);
+  const agent = currentViewAgent(storeId);
   const ownerId = st && st.mine !== false && !st.asAgent ? st.ownerAuthUserId || "" : "";
   return currentMemberKey({
-    agentId: state.viewRole === ROLE.AGENT ? state.viewAgentId || state.meta.agentId : "",
+    agentId: agent ? agent.id : "",
     userId: ownerId || auth.id || state.meta.authUserId || "",
     email: ownerId ? "" : auth.email || state.meta.authEmail || "",
     deviceId: state.meta.deviceId || ""
   });
 }
-function tempUploadTag(storeId) {
+function currentViewAgent(storeId) {
+  if (state.viewRole !== ROLE.AGENT) return null;
+  const id = state.viewAgentId || state.meta.agentId;
+  if (!id) return null;
+  return state.collections.agents.find((a) => a.id === id && (!storeId || a.parentStoreId === storeId)) || null;
+}
+function tempMemberCode(storeId) {
+  const st = state.collections.stores.find((s) => s.id === storeId);
+  const agent = currentViewAgent(storeId);
+  if (agent) return ensureAgentMemberCode(agent);
+  if (st && st.mine !== false && !st.asAgent) return OWNER_CODE;
+  if (st && isMemberCode(st.memberCode)) return String(st.memberCode).toLowerCase();
   return memberCode(tempMemberKey(storeId));
 }
 function tempMembers(storeId) {
-  const list = [{ key: tempMemberKey(storeId), time: 0 }];
+  const list = [{ key: tempMemberKey(storeId), code: tempMemberCode(storeId), time: 0 }];
   const st = state.collections.stores.find((s) => s.id === storeId);
   if (!st) return list;
-  if (st.ownerAuthUserId) {
-    list.push({ key: currentMemberKey({ userId: st.ownerAuthUserId }), time: 0 });
+  if (st.ownerAuthUserId || st.mine !== false) {
+    list.push({ key: currentMemberKey({ userId: st.ownerAuthUserId || "" }), code: OWNER_CODE, time: 0 });
   }
   for (const a of state.collections.agents.filter((a2) => a2.parentStoreId === storeId)) {
-    list.push({ key: currentMemberKey({ agentId: a.id }), time: 0 });
+    list.push({ key: currentMemberKey({ agentId: a.id }), code: ensureAgentMemberCode(a), time: 0 });
   }
   return list;
 }
@@ -17478,71 +17760,102 @@ async function syncTempLedger(folder, storeId, { markSelf = false } = {}) {
   let title = before;
   const members = tempMembers(storeId);
   title = ensureMembers(title, members);
-  if (markSelf) title = markMember(title, tempMemberKey(storeId), Date.now());
+  if (markSelf) title = markMember(title, tempMemberCode(storeId), Date.now());
   if (title !== before) await renameFolder(folder, title);
   folder.ledger = title;
   folder.remoteTitle = title;
   saveFolder(storeId, folder);
   return folder;
 }
-function buildTempMain(folder, storeId) {
+function isTempMainFile(name2) {
+  return /^83-main-/i.test(String(name2 || ""));
+}
+function setMainMember(map, code, patch) {
+  if (!isMemberCode(code)) return;
+  const next = normalizeMember({ code, ...patch });
+  if (next) map[code] = mergeMember(map[code], next);
+}
+function roleOfStore(store) {
+  if (!store) return "owner";
+  if (store.asAgent) return "agent";
+  return store.mine === false ? "shared" : "owner";
+}
+async function buildTempMain(folder, storeId) {
   const store = state.collections.stores.find((s) => s.id === storeId);
   if (!store) throw new Error("找不到这家店，无法生成主文件");
+  const cfg = loadFolder(storeId) || folder || {};
   const auth = authPack() || {};
+  const storeRole = roleOfStore(store);
+  const selfAgent = currentViewAgent(storeId);
+  const role2 = selfAgent ? selfAgent.permission === "shared" ? "shared" : "agent" : storeRole;
+  const selfCode = tempMemberCode(storeId);
+  const identityHash = await identityHashOf(auth.id || auth.email || state.meta.deviceId || "");
+  const mainMembers = {};
+  for (const [code, mem] of Object.entries(cfg.mainMembers || {})) {
+    setMainMember(mainMembers, code, mem);
+  }
+  setMainMember(mainMembers, OWNER_CODE, {
+    role: "owner",
+    name: "店主",
+    userId: store.ownerAuthUserId || (role2 === "owner" ? auth.id || "" : ""),
+    email: store.ownerAuthEmail || (role2 === "owner" ? auth.email || "" : ""),
+    identityHash: role2 === "owner" ? identityHash : cfg.ownerIdentityHash || "",
+    storeId: store.id,
+    updatedAt: Date.now()
+  });
+  setMainMember(mainMembers, selfCode, {
+    role: selfAgent ? selfAgent.permission === "shared" ? "shared" : "agent" : role2,
+    name: selfAgent ? selfAgent.name || selfAgent.code || "代理" : role2 === "owner" ? "店主" : "本机",
+    agentId: selfAgent ? selfAgent.id : "",
+    parentStoreId: selfAgent ? selfAgent.parentStoreId : role2 === "agent" ? store.parentStoreId || "" : "",
+    userId: auth.id || "",
+    email: auth.email || "",
+    identityHash,
+    storeId: store.id,
+    updatedAt: Date.now()
+  });
+  for (const a of state.collections.agents.filter((a2) => a2.parentStoreId === storeId)) {
+    setMainMember(mainMembers, ensureAgentMemberCode(a), {
+      role: a.permission === "shared" ? "shared" : "agent",
+      name: a.name || a.code || "代理",
+      agentId: a.id,
+      parentStoreId: storeId,
+      storeId: store.id,
+      updatedAt: a.updatedAt || a.createdAt || 0
+    });
+  }
+  if (cfg.pendingPack) {
+    setMainMember(mainMembers, selfCode, {
+      pack: {
+        ...cfg.pendingPack,
+        targetStoreId: cfg.pendingPack.targetStoreId || store.id,
+        storeRole: cfg.pendingPack.storeRole || role2,
+        parentStoreId: cfg.pendingPack.parentStoreId || store.parentStoreId || "",
+        audience: cfg.pendingPack.audience || (role2 === "owner" ? "all" : "owner")
+      }
+    });
+  }
+  for (const [code, info] of Object.entries(cfg.initialPacks || {})) {
+    if (!info || !info.downloadUrl) continue;
+    setMainMember(mainMembers, code, { initialPack: info });
+  }
   const agents2 = state.collections.agents.filter((a) => a.parentStoreId === storeId).map((a) => ({
     id: a.id,
     name: a.name || "",
     ownerName: a.ownerName || "",
     code: a.code || "",
+    memberCode: ensureAgentMemberCode(a),
     parentStoreId: a.parentStoreId,
     permission: a.permission === "shared" ? "shared" : "agent",
     createdAt: a.createdAt || 0,
     updatedAt: a.updatedAt || 0
   }));
-  const storeRole = store.asAgent ? "agent" : store.mine === false ? "shared" : "owner";
-  const ownerId = store.mine !== false && !store.asAgent ? store.ownerAuthUserId || "" : "";
-  const ownerKey = currentMemberKey({
-    userId: ownerId || store.ownerAuthUserId || auth.id || "",
-    email: ownerId ? "" : store.ownerAuthEmail || auth.email || "",
-    deviceId: state.meta.deviceId || ""
-  });
-  const selfKey = currentMemberKey({
-    agentId: state.viewRole === ROLE.AGENT ? state.viewAgentId || state.meta.agentId : "",
-    userId: ownerId || auth.id || "",
-    email: ownerId ? "" : auth.email || "",
-    deviceId: state.meta.deviceId || ""
-  });
-  const memberSeed = [];
-  if (store.ownerAuthUserId || auth.id) {
-    memberSeed.push({ code: memberCode(ownerKey), role: "owner", name: "店主", userId: store.ownerAuthUserId || auth.id || "", deviceId: "" });
-  }
-  const isOwnerView = state.viewRole !== ROLE.AGENT && storeRole === "owner";
-  memberSeed.push({
-    code: memberCode(selfKey),
-    role: state.viewRole === ROLE.AGENT ? "agent" : storeRole,
-    name: state.viewRole === ROLE.AGENT ? (state.collections.agents.find((a) => a.id === state.viewAgentId) || {}).name || "代理" : isOwnerView ? "店主" : "本机",
-    userId: isOwnerView ? store.ownerAuthUserId || auth.id || "" : auth.id || "",
-    deviceId: state.meta.deviceId || ""
-  });
-  for (const a of agents2) {
-    memberSeed.push({ code: memberCode(currentMemberKey({ agentId: a.id })), role: "agent", name: a.name || a.code || "代理", agentId: a.id });
-  }
-  const synced = new Map(ledgerMembers(folder.ledger || "").map((m) => [m.code, m.lastSyncAt]));
-  const memberMap = /* @__PURE__ */ new Map();
-  for (const m of memberSeed) {
-    if (!m.code) continue;
-    const old = memberMap.get(m.code);
-    memberMap.set(m.code, { ...old, ...m, lastSyncAt: synced.get(m.code) || 0 });
-  }
-  for (const m of ledgerMembers(folder.ledger || "")) {
-    if (!memberMap.has(m.code)) memberMap.set(m.code, { code: m.code, role: "member", name: "成员 " + m.code, lastSyncAt: m.lastSyncAt });
-  }
-  const members = [...memberMap.values()];
   return {
     app: "stall-assistant",
-    kind: "tempfile-main",
-    version: 1,
+    kind: MAIN_KIND,
+    version: MAIN_VERSION,
     generatedAt: Date.now(),
+    mainUpdatedAt: Date.now(),
     folder: {
       id: folder.folderId,
       title: folder.title || "",
@@ -17553,19 +17866,33 @@ function buildTempMain(folder, storeId) {
     store: {
       id: store.id,
       name: store.name || "",
-      ownerAuthUserId: store.ownerAuthUserId || auth.id || "",
-      createdAt: store.createdAt || 0,
-      role: store.asAgent ? "agent" : store.mine === false ? "shared" : "owner"
+      role: storeRole,
+      ownerAuthUserId: store.ownerAuthUserId || (storeRole === "owner" ? auth.id || "" : ""),
+      parentStoreId: store.parentStoreId || "",
+      createdAt: store.createdAt || 0
     },
     owner: {
-      userId: auth.id || "",
-      email: auth.email || "",
+      code: OWNER_CODE,
+      userId: store.ownerAuthUserId || (role2 === "owner" ? auth.id || "" : ""),
+      email: store.ownerAuthEmail || (role2 === "owner" ? auth.email || "" : ""),
       name: state.settings.shopName || store.name || "",
+      identityHash: role2 === "owner" ? identityHash : cfg.ownerIdentityHash || "",
       deviceId: state.meta.deviceId || ""
     },
+    writer: {
+      code: selfCode,
+      deviceId: state.meta.deviceId || "",
+      role: role2,
+      updatedAt: Date.now()
+    },
+    policy: {
+      packExpiryHours: TEST_PACK_EXPIRY_HOURS,
+      initialPackExpiryHours: TEST_INITIAL_PACK_EXPIRY_HOURS,
+      mainUpdateMinutes: 15,
+      audience: role2 === "owner" ? "all" : "owner"
+    },
     agents: agents2,
-    members,
-    ledger: folder.ledger || "",
+    members: mainMembers,
     counts: {
       agents: agents2.length,
       products: (state.collections.products || []).length,
@@ -17576,100 +17903,177 @@ function buildTempMain(folder, storeId) {
 }
 async function writeTempMainFile(folder, storeId) {
   if (!folder || !folder.folderId || !storeId) return null;
-  const fresh = !folder.activated && !folder.mainUpdatedAt;
-  if (!fresh) {
+  const cfg = loadFolder(storeId) || folder;
+  const code = tempMemberCode(storeId);
+  const pack = await buildTempMain(folder, storeId);
+  const name2 = mainFileName({ storeId, code, deviceId: state.meta.deviceId, at: Date.now() });
+  const file = new File([JSON.stringify(pack)], name2, { type: "application/json" });
+  const info = await uploadFile(folder, file);
+  if (!info || !info.id) throw new Error("主文件上传后没有返回文件 id");
+  const oldIds = (cfg.ownMainFileIds || []).filter((id) => id && id !== info.id);
+  const saved = loadFolder(storeId) || cfg;
+  saved.ownMainFileIds = [info.id];
+  saved.mainFileIds = [info.id];
+  saved.mainFileId = info.id;
+  saved.mainUpdatedAt = Date.now();
+  saved.mainDirty = false;
+  saved.mainMembers = pack.members;
+  saved.activated = true;
+  saveFolder(storeId, saved);
+  for (const oldId of oldIds.slice(-3)) {
     try {
-      await syncTempLedger(folder, storeId);
+      await deleteFile(folder, oldId);
     } catch (e) {
     }
   }
-  const pack = buildTempMain(folder, storeId);
-  const name2 = "83-main-" + storeId + ".json";
-  const file = new File([JSON.stringify(pack)], name2, { type: "application/json" });
-  const res = await uploadFile(folder, file);
-  const info = res && res.files && res.files[0] || null;
-  if (!info || !info.id) throw new Error("主文件上传后没有返回文件 id");
-  folder.activated = true;
-  const saved = loadFolder(storeId);
-  if (saved) {
-    saved.mainFileId = info.id;
-    saved.mainUpdatedAt = Date.now();
-    saved.activated = true;
-    saveFolder(storeId, saved);
-  }
   return { file: info, name: name2, pack };
 }
-async function syncTempMainFile(folder, storeId) {
-  if (!folder || !folder.folderId || !storeId) return null;
+async function readTempMainCopies(folder) {
   let list = [];
   try {
     list = await listFiles(folder);
   } catch (e) {
-    if (!(e && e.code === "FOLDER_NOT_FOUND")) throw e;
+    if (e && e.code === "FOLDER_NOT_FOUND") return { copies: [], blocked: false };
+    throw e;
   }
-  for (const f of list.filter((x) => isTempMainFile(x.name))) {
+  const mains = list.filter((f) => isTempMainFile(f.name)).slice(0, 20);
+  const copies = [];
+  let blocked = false;
+  for (const f of mains) {
     try {
-      await deleteFile(folder, f.id);
+      const text = await fetchFileText(f);
+      const raw = JSON.parse(String(text || "").replace(/^\uFEFF/, "").trim());
+      const main = normalizeMain(raw);
+      if (main) copies.push(main);
+    } catch (e) {
+      blocked = true;
+    }
+  }
+  return { copies, blocked };
+}
+async function cleanupOwnMainCopies(folder, storeId, code, keepId) {
+  if (!folder || !folder.folderId || !code) return;
+  let list = [];
+  try {
+    list = await listFiles(folder);
+  } catch (e) {
+    return;
+  }
+  const victims = [];
+  for (const f of list) {
+    if (!f.id || f.id === keepId || !isTempMainFile(f.name)) continue;
+    const parsed = parseMainFileName(f.name);
+    if (!parsed || parsed.legacy) continue;
+    if (parsed.storeId !== storeId || parsed.code !== code) continue;
+    victims.push(f.id);
+  }
+  await Promise.all(victims.slice(0, 10).map((id) => deleteFile(folder, id).catch(() => {
+  })));
+}
+async function syncTempMainFile(folder, storeId, { mergeRemote = true, cleanupOwn = true } = {}) {
+  if (!folder || !folder.folderId || !storeId) return null;
+  const cfg = loadFolder(storeId) || folder;
+  if (mergeRemote) {
+    try {
+      const remote = await readTempMainCopies(folder);
+      if (remote.copies.length) {
+        const merged = mergeMainCopies(remote.copies);
+        if (merged) {
+          const next = { ...cfg.mainMembers || {} };
+          for (const [code, mem] of Object.entries(merged.members || {})) {
+            next[code] = mergeMember(next[code], mem);
+          }
+          cfg.mainMembers = next;
+        }
+      }
+      if (remote.blocked) cfg.mainReadBlocked = true;
+      else delete cfg.mainReadBlocked;
     } catch (e) {
     }
   }
-  return writeTempMainFile(folder, storeId);
+  saveFolder(storeId, cfg);
+  const written = await writeTempMainFile(folder, storeId);
+  if (cleanupOwn && written && written.file && written.file.id) {
+    await cleanupOwnMainCopies(folder, storeId, tempMemberCode(storeId), written.file.id);
+  }
+  return written;
 }
 function refreshTempMainFile(storeId) {
   const tf = loadFolder(storeId);
   if (!tf) return Promise.resolve(null);
-  return syncTempMainFile(tf, storeId);
+  return syncTempMainFile(tf, storeId).catch((e) => null);
 }
 async function uploadAgentLinkPack(agentId) {
+  var _a;
   const agent = state.collections.agents.find((a) => a.id === agentId);
   if (!agent) throw new Error("代理不存在");
   const storeId = agent.parentStoreId;
   let tf = loadFolder(storeId);
   let created = false;
   if (!tf) {
-    tf = await createFolder({ title: "83-代理-" + (agent.name || agent.code) + "-1h" });
+    tf = await createFolder({
+      title: "83-" + (((_a = state.collections.stores.find((s) => s.id === storeId)) == null ? void 0 : _a.name) || "店铺") + "-1h",
+      expiryHours: TEST_FOLDER_EXPIRY_HOURS
+    });
     saveFolder(storeId, tf);
     created = true;
   }
-  try {
-    await syncTempMainFile(tf, storeId);
-  } catch (e) {
-  }
+  const code = ensureAgentMemberCode(agent);
   const pack = exportAgentPack(agentId);
   if (!pack) throw new Error("代理包生成失败");
+  const uploadedAt = Date.now();
+  const packId = "ip-" + code + "-" + uploadedAt.toString(36) + "-" + Math.random().toString(36).slice(2, 6);
+  pack.packId = packId;
+  pack.uploadedAt = uploadedAt;
+  pack.exportedAt = pack.exportedAt || uploadedAt;
+  pack.targetStoreId = storeId;
+  pack.parentStoreId = storeId;
+  pack.storeRole = agent.permission === "shared" ? "shared" : "agent";
+  pack.audience = "owner";
+  pack.initial = true;
+  pack.validUntil = uploadedAt + 20 * 60 * 1e3;
+  pack.issuedFor = {
+    memberCode: code,
+    role: pack.storeRole,
+    expectedAuthUserId: agent.authUserId || "",
+    expectedEmail: agent.authEmail || "",
+    issuedAt: uploadedAt
+  };
   const stamp2 = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").slice(0, 16);
-  const name2 = "83-agentlink-" + agent.code + "-" + stamp2 + ".json";
+  const name2 = "83-agentlink-" + agent.code + "-" + code + "-" + stamp2 + ".json";
   const file = new File([JSON.stringify(pack)], name2, { type: "application/json" });
-  const res = await uploadFile(tf, file);
-  const fileInfo = res && res.files && res.files[0] || null;
+  const fileInfo = await uploadStandaloneFile(file, { expiryHours: TEST_INITIAL_PACK_EXPIRY_HOURS });
   if (!fileInfo || !fileInfo.id) throw new Error("上传返回里没有文件 id");
-  const oldIds = [];
-  if (tf.agentPackIds && tf.agentPackIds[agent.id]) oldIds.push(tf.agentPackIds[agent.id]);
-  if (tf.agentPackFileId) oldIds.push(tf.agentPackFileId);
-  if (!oldIds.length) {
-    try {
-      const list = await listFiles(tf);
-      const pref = "83-agentlink-" + agent.code + "-";
-      for (const f of list) if (f && f.id && String(f.name || "").startsWith(pref)) oldIds.push(f.id);
-    } catch (e) {
-    }
-  }
-  for (const oldId of oldIds) {
-    if (oldId && oldId !== fileInfo.id) {
-      try {
-        await deleteFile(tf, oldId);
-      } catch (e) {
-      }
-    }
-  }
-  tf.agentPackIds = { ...tf.agentPackIds || {}, [agent.id]: fileInfo.id };
-  delete tf.agentPackFileId;
+  const initial = {
+    packId,
+    downloadUrl: fileInfo.downloadUrl,
+    fileId: fileInfo.id,
+    expiresAt: fileInfo.expiresAt || uploadedAt + TEST_INITIAL_PACK_EXPIRY_HOURS * 3600 * 1e3,
+    validUntil: pack.validUntil,
+    uploadedAt,
+    issuedFor: pack.issuedFor
+  };
+  tf.initialPacks = { ...tf.initialPacks || {}, [code]: initial };
+  tf.mainMembers = { ...tf.mainMembers || {} };
+  setMainMember(tf.mainMembers, code, { initialPack: initial });
   saveFolder(storeId, tf);
-  try {
-    await syncTempLedger(tf, storeId, { markSelf: true });
-  } catch (e) {
+  await writeTempMainFile(tf, storeId);
+  return { folder: tf, file: fileInfo, name: name2, created, initialPack: initial };
+}
+function checkIssuedFor(pack) {
+  const issued = pack && pack.issuedFor;
+  if (!issued) return { ok: true, pending: false };
+  const auth = authPack() || {};
+  const uid2 = auth.id || "";
+  const email = auth.email || "";
+  if (!uid2 && !email) return { ok: true, pending: true };
+  if (issued.expectedAuthUserId && uid2 && issued.expectedAuthUserId !== uid2) {
+    return { ok: false, reason: "初始包是发给另一个账号的，请让店主重新生成" };
   }
-  return { folder: tf, file: fileInfo, name: name2, created };
+  if (issued.expectedEmail && email && issued.expectedEmail !== email) {
+    return { ok: false, reason: "初始包是发给另一个邮箱的，请让店主重新生成" };
+  }
+  return { ok: true, pending: false };
 }
 async function storageDetail() {
   const cur = currentDbName();
@@ -18209,50 +18613,15 @@ function exportAgentPack(agentId) {
     meta: { activeStoreId: agent.parentStoreId, role: ROLE.AGENT, agentId: agent.id, schemaVersion: 1 }
   };
 }
-function exportAgentSalesPack() {
-  const st = activeStore.value;
-  const aid = state.meta && state.meta.agentId || agentProfile.value && agentProfile.value.id || "";
-  if (!st || !aid) return null;
-  const scope = storeScopeData(st.id);
-  if (!scope) return null;
-  const agentStore = agentStoreWithPay(scope.store);
-  const d = scope.data;
-  const mineOrder = (o) => o.agentId === aid;
-  const mineOp = (o) => o.operatorId === aid;
-  return {
-    app: "stall-assistant",
-    version: 3,
-    kind: "agent",
-    exportedAt: Date.now(),
-    from: { deviceId: state.meta.deviceId, storeName: st.name, userId: (authPack() || {}).id || "" },
-    user: authPack(),
-    agent: agentProfile.value || { id: aid },
-    store: agentStore,
-    collections: {
-      stores: [agentStore],
-      warehouses: [],
-      products: [],
-      categories: [],
-      stocks: d.stocks.filter((s) => s.locType === "store"),
-      orders: d.orders.filter(mineOrder),
-      holds: d.holds.filter((h2) => h2.agentId === aid),
-      logs: d.logs.filter((l) => l.operatorId === aid),
-      stockOps: d.stockOps.filter(mineOp),
-      expenses: [],
-      agents: []
-    },
-    meta: {
-      activeStoreId: st.id,
-      role: ROLE.AGENT,
-      agentId: aid,
-      schemaVersion: 1
-    }
-  };
-}
 async function importStorePack(remote) {
   await ensureAllShardsLoaded();
   const pack = remote && !remote.collections && remote.seed ? { kind: "agent", collections: remote.seed.collections, meta: remote.seed.meta, agent: remote.agent, settings: remote.seed.settings } : remote;
   if (!pack || !pack.collections) throw new Error("这不是本程序导出的店铺数据包");
+  if (pack.initial && pack.validUntil && Date.now() > pack.validUntil) {
+    throw new Error("初始包已过期：代理/共享链接只有 20 分钟有效期，请让店主重新复制");
+  }
+  const issuedCheck = checkIssuedFor(pack);
+  if (!issuedCheck.ok) throw new Error(issuedCheck.reason || "这个初始包不能在当前账号导入");
   const isAgentPack = pack.kind === "agent" || pack.meta && pack.meta.role === ROLE.AGENT;
   const localOwner = state.meta.deviceId || "local";
   const packOwner = pack.from && pack.from.deviceId || "pack";
@@ -18412,6 +18781,12 @@ async function importStorePack(remote) {
       storeNow.sharedFrom = pack.from && pack.from.deviceId || "";
     }
     storeNow.name = storeRec.name || storeNow.name;
+    const issuedCode = pack.issuedFor && isMemberCode(pack.issuedFor.memberCode) ? String(pack.issuedFor.memberCode).toLowerCase() : "";
+    if (issuedCode && !isMemberCode(storeNow.memberCode)) storeNow.memberCode = issuedCode;
+    if (issuedCode && ownAgentId) {
+      const ownAgent = state.collections.agents.find((a) => a.id === ownAgentId);
+      if (ownAgent && !isMemberCode(ownAgent.memberCode)) ownAgent.memberCode = issuedCode;
+    }
     const packUserId = pack.user && (pack.user.id || pack.user.sub) || pack.from && pack.from.userId || "";
     if (packUserId && !storeNow.ownerAuthUserId) storeNow.ownerAuthUserId = packUserId;
     const packEmail = pack.user && pack.user.email || "";
@@ -28863,6 +29238,632 @@ var lzString = { exports: {} };
 })(lzString);
 var lzStringExports = lzString.exports;
 const LZString = /* @__PURE__ */ getDefaultExportFromCjs(lzStringExports);
+const AUTO_SYNC_MS = 15 * 60 * 1e3;
+const MAIN_SYNC_MS = 15 * 60 * 1e3;
+const PACK_TTL_MS$1 = 60 * 60 * 1e3;
+const PACK_EXPIRY_HOURS = 1;
+const LEDGER_SYNC_MS$1 = 15 * 60 * 1e3;
+const REDIRECT_CHECK_MS = 10 * 60 * 1e3;
+const AUTO_STATUS_EVENT = "temp-auto-status";
+const HOLD_KEY = "stall3:tempfile:autoHold";
+const BUSY_KEY = "stall3:tempfile:autoBusy";
+function folderExpired(cfg, graceMs = 60 * 1e3) {
+  const t2 = Number(cfg && cfg.expiresAt) || 0;
+  return !!t2 && Date.now() > t2 + graceMs;
+}
+function abortError(reason) {
+  const e = new Error(reason || "已取消");
+  e.code = "TEMP_ABORTED";
+  return e;
+}
+function holdTempAuto(seconds = 120, reason = "manual") {
+  try {
+    localStorage.setItem(HOLD_KEY, String(Date.now() + seconds * 1e3));
+  } catch (e) {
+  }
+  if (activeRun) abortTempAutoForStore(activeRun.storeId, reason);
+}
+function tempAutoHeld() {
+  try {
+    return Number(localStorage.getItem(HOLD_KEY) || 0) > Date.now();
+  } catch (e) {
+    return false;
+  }
+}
+function releaseTempAuto() {
+  try {
+    localStorage.removeItem(HOLD_KEY);
+  } catch (e) {
+  }
+}
+function abortTempAutoForStore(storeId, reason = "manual") {
+  if (!activeRun) return false;
+  if (storeId && activeRun.storeId !== storeId) return false;
+  activeRun.reason = reason;
+  try {
+    activeRun.controller.abort();
+  } catch (e) {
+  }
+  emitAutoStatus({ storeId: activeRun.storeId, running: false, status: "已取消当前自动同步（" + reason + "）", at: Date.now() });
+  return true;
+}
+async function waitTempAutoIdle(maxMs = 18e3) {
+  const start = Date.now();
+  while (Date.now() - start < maxMs) {
+    const at = readBusyAt();
+    if (!at || Date.now() - at > 45e3) return;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+function readBusyAt() {
+  try {
+    const raw = localStorage.getItem(BUSY_KEY) || "";
+    if (!raw) return 0;
+    if (raw.startsWith("{")) {
+      const j = JSON.parse(raw);
+      return Number(j && j.at) || 0;
+    }
+    return Number(raw) || 0;
+  } catch (e) {
+    return 0;
+  }
+}
+function emitAutoStatus(detail) {
+  try {
+    window.dispatchEvent(new CustomEvent(AUTO_STATUS_EVENT, { detail }));
+  } catch (e) {
+  }
+}
+let timer = 0;
+let running = false;
+let activeRun = null;
+function stamp() {
+  const d = /* @__PURE__ */ new Date();
+  const pad = (n2) => String(n2).padStart(2, "0");
+  return d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + "-" + pad(d.getHours()) + pad(d.getMinutes());
+}
+function waitIdle() {
+  return new Promise((resolve2) => {
+    if (typeof window !== "undefined" && window.requestIdleCallback) {
+      window.requestIdleCallback(() => resolve2(), { timeout: 1800 });
+    } else setTimeout(resolve2, 30);
+  });
+}
+function packToText(pack) {
+  return "PACK1:" + LZString.compressToBase64(JSON.stringify(pack));
+}
+function parsePack(raw) {
+  let t2 = String(raw || "").replace(/^\uFEFF/, "").trim();
+  if (!t2) throw new Error("内容是空的");
+  if (/^PACK1:/i.test(t2)) {
+    const plain = LZString.decompressFromBase64(t2.slice(6).replace(/\s+/g, ""));
+    if (!plain) throw new Error("压缩包不完整");
+    return JSON.parse(plain);
+  }
+  try {
+    return JSON.parse(t2);
+  } catch (e) {
+  }
+  const a = t2.indexOf("{"), b = t2.lastIndexOf("}");
+  if (a >= 0 && b > a) return JSON.parse(t2.slice(a, b + 1));
+  throw new Error("数据包格式不对");
+}
+function isOwnFile(cfg, f) {
+  if (!cfg || !f) return false;
+  return !!(f.id && (cfg.ownFileIds || []).includes(f.id));
+}
+function rememberOwn(cfg, f) {
+  if (!cfg || !f) return;
+  const ids = (cfg.ownFileIds || []).slice(-60);
+  if (f.id && !ids.includes(f.id)) ids.push(f.id);
+  cfg.ownFileIds = ids;
+}
+function visible(cfg, list) {
+  const oldest = Date.now() - PACK_TTL_MS$1;
+  const merged = cfg && cfg.mergedFileIds || [];
+  return (list || []).filter((f) => {
+    if (!f || isTempMainFile(f.name) || /^__83-init/i.test(f.name)) return false;
+    if (isOwnFile(cfg, f)) return false;
+    if (f.id && merged.includes(f.id)) return false;
+    const lab = tempFileLabel(f.name);
+    if (lab.kind === "agentlink" && !isAgent.value) return false;
+    if (f.createdAt && f.createdAt < oldest) return false;
+    return true;
+  });
+}
+async function tempCleanup(cfg, list) {
+  if (!cfg) return list;
+  const oldest = Date.now() - PACK_TTL_MS$1;
+  let changed = false;
+  for (const f of list || []) {
+    if (!f.id || isTempMainFile(f.name)) continue;
+    if (!f.createdAt || f.createdAt >= oldest) continue;
+    try {
+      await deleteFile(cfg, f.id);
+      changed = true;
+    } catch (e) {
+    }
+  }
+  return changed ? await listFiles(cfg) : list;
+}
+async function tempAckCleanup(cfg, list) {
+  const ack = ledgerAckTime(cfg && cfg.ledger ? cfg.ledger : "");
+  if (!ack) return list;
+  let changed = false;
+  for (const f of list || []) {
+    if (!f.id || isTempMainFile(f.name)) continue;
+    if (!f.createdAt || f.createdAt >= ack) continue;
+    try {
+      await deleteFile(cfg, f.id);
+      changed = true;
+    } catch (e) {
+    }
+  }
+  return changed ? await listFiles(cfg) : list;
+}
+async function syncLedgerIfDue(cfg, storeId, force = false) {
+  if (!force && cfg.lastLedgerAt && Date.now() - Number(cfg.lastLedgerAt) < LEDGER_SYNC_MS$1) return;
+  try {
+    await syncTempLedger(cfg, storeId, { markSelf: true });
+    cfg.lastLedgerAt = Date.now();
+    saveFolder(storeId, cfg);
+  } catch (e) {
+  }
+}
+function assertActive(signal, storeId) {
+  if (signal && signal.aborted) throw abortError();
+  if (typeof document !== "undefined" && document.visibilityState === "hidden") throw abortError("页面已隐藏");
+  const cur = activeStore.value;
+  if (!cur || cur.id !== storeId) throw abortError("店铺已切换");
+}
+function isOwnerView(store) {
+  return !isAgent.value && store && store.mine !== false && !store.asAgent;
+}
+async function uploadCurrent(cfg, store, signal) {
+  const rev = dataRev();
+  if (cfg.lastAutoRev === rev && cfg.lastAutoUploadAt && Date.now() - Number(cfg.lastAutoUploadAt) < PACK_TTL_MS$1) {
+    return false;
+  }
+  assertActive(signal, store.id);
+  await waitIdle();
+  assertActive(signal, store.id);
+  const pack = exportStorePack(store.id);
+  if (!pack) return false;
+  const code = tempMemberCode(store.id);
+  const uploadedAt = Date.now();
+  const packId = "pk-" + code + "-" + uploadedAt.toString(36) + "-" + Math.random().toString(36).slice(2, 6);
+  const role2 = store.asAgent ? "agent" : store.mine === false ? "shared" : "owner";
+  pack.packId = packId;
+  pack.uploadedAt = uploadedAt;
+  pack.exportedAt = pack.exportedAt || uploadedAt;
+  pack.dataRev = String(rev);
+  pack.targetStoreId = store.id;
+  pack.storeRole = role2;
+  pack.parentStoreId = store.parentStoreId || "";
+  pack.audience = role2 === "owner" ? "all" : "owner";
+  const prefix = role2 === "owner" ? "83-store-" : "83-store-full-";
+  const name2 = prefix + store.id + "-" + code + "-" + (state.meta.deviceId || "dev") + "-" + stamp() + ".json";
+  const file = new File([packToText(pack)], name2, { type: "application/json" });
+  assertActive(signal, store.id);
+  const up = await uploadStandaloneFile(file, { expiryHours: PACK_EXPIRY_HOURS });
+  assertActive(signal, store.id);
+  const info = {
+    packId,
+    fileId: up.id,
+    downloadUrl: up.downloadUrl,
+    expiresAt: up.expiresAt || uploadedAt + PACK_EXPIRY_HOURS * 3600 * 1e3,
+    uploadedAt,
+    exportedAt: pack.exportedAt,
+    dataRev: String(rev),
+    targetStoreId: store.id,
+    storeRole: role2,
+    parentStoreId: store.parentStoreId || "",
+    audience: pack.audience
+  };
+  cfg.pendingPack = info;
+  cfg.memberTag = code;
+  cfg.lastAutoHash = String(rev);
+  cfg.lastAutoRev = rev;
+  cfg.lastAutoUploadAt = uploadedAt;
+  cfg.mainDirty = true;
+  rememberOwn(cfg, { id: up.id });
+  saveFolder(store.id, cfg);
+  return true;
+}
+async function pullOthers(cfg, store, signal) {
+  let merged = 0;
+  let pending = 0;
+  let blocked = false;
+  const selfCode = tempMemberCode(store.id);
+  const ownerView = isOwnerView(store);
+  assertActive(signal, store.id);
+  let remote = { copies: [], blocked: false };
+  try {
+    remote = await readTempMainCopies(cfg);
+  } catch (e) {
+  }
+  if (remote.blocked) blocked = true;
+  const main = mergeMainCopies(remote.copies);
+  if (main && main.members) {
+    for (const [code, mem] of Object.entries(main.members)) {
+      if (code === selfCode || !mem || !mem.pack) continue;
+      const p2 = mem.pack;
+      if (!p2.downloadUrl) continue;
+      if (p2.targetStoreId && p2.targetStoreId !== store.id) continue;
+      if (!ownerView && p2.audience !== "all") continue;
+      if (p2.expiresAt && p2.expiresAt + 60 * 1e3 < Date.now()) continue;
+      if (p2.packId && (cfg.mergedPackIds || []).includes(p2.packId)) continue;
+      pending++;
+      assertActive(signal, store.id);
+      let text;
+      try {
+        text = await fetchFileText({ downloadUrl: p2.downloadUrl });
+      } catch (e) {
+        blocked = true;
+        continue;
+      }
+      let pack;
+      try {
+        pack = parsePack(text);
+      } catch (e) {
+        continue;
+      }
+      if (!pack || pack.kind !== "store" && pack.kind !== "agent") continue;
+      if (pack.targetStoreId && pack.targetStoreId !== store.id) continue;
+      if (!ownerView && pack.audience !== "all") continue;
+      try {
+        await importStorePack(pack);
+        merged++;
+        cfg.mergedPackIds = (cfg.mergedPackIds || []).slice(-80);
+        if (p2.packId) cfg.mergedPackIds.push(p2.packId);
+        cfg.mainMembers = { ...cfg.mainMembers || {}, [code]: mem };
+      } catch (e) {
+      }
+    }
+  }
+  assertActive(signal, store.id);
+  let list = [];
+  try {
+    list = await listFiles(cfg);
+  } catch (e) {
+  }
+  const legacy = visible(cfg, list);
+  pending += legacy.length;
+  for (const f of legacy) {
+    assertActive(signal, store.id);
+    let text;
+    try {
+      text = await fetchFileText(f);
+    } catch (e) {
+      blocked = true;
+      break;
+    }
+    let pack;
+    try {
+      pack = parsePack(text);
+    } catch (e) {
+      continue;
+    }
+    if (!pack || pack.kind !== "store" && pack.kind !== "agent") continue;
+    if (pack.targetStoreId && pack.targetStoreId !== store.id) continue;
+    if (!ownerView && pack.audience === "owner") continue;
+    try {
+      await importStorePack(pack);
+      merged++;
+      cfg.mergedFileIds = (cfg.mergedFileIds || []).slice(-60);
+      if (f.id) cfg.mergedFileIds.push(f.id);
+    } catch (e) {
+    }
+  }
+  if (merged) {
+    cfg.lastMergedAt = Date.now();
+    await syncLedgerIfDue(cfg, store.id);
+  }
+  saveFolder(store.id, cfg);
+  return { merged, pending, blocked };
+}
+function applyRedirect(cfg, red, storeId) {
+  const next = {
+    folderId: red.folderId,
+    manageToken: red.manageToken,
+    title: (cfg.title || "临时分组") + " · 已续期",
+    url: "https://tempfile.org/" + red.folderId + "/",
+    expiresAt: red.expiresAt || 0,
+    activated: true,
+    previousFolderId: cfg.folderId,
+    ownFileIds: [],
+    mergedFileIds: [],
+    mergedPackIds: [],
+    lastMergedAt: 0,
+    ledger: "",
+    mainUpdatedAt: 0,
+    mainFileIds: [],
+    mainMembers: {},
+    lastRedirectAt: Date.now(),
+    memberTag: cfg.memberTag || ""
+  };
+  saveFolder(storeId, next);
+  try {
+    window.dispatchEvent(new CustomEvent("temp-folder-rotated", { detail: { storeId, cfg: next } }));
+  } catch (e) {
+  }
+  return next;
+}
+async function followRedirect(cfg, storeId) {
+  if (cfg.redirectTo) return applyRedirect(cfg, cfg.redirectTo, storeId);
+  if (cfg.lastRedirectAt && Date.now() - Number(cfg.lastRedirectAt) < REDIRECT_CHECK_MS) return cfg;
+  let info;
+  try {
+    info = await getFolder(cfg);
+  } catch (e) {
+    cfg.lastRedirectAt = Date.now();
+    saveFolder(storeId, cfg);
+    return cfg;
+  }
+  cfg.lastRedirectAt = Date.now();
+  delete cfg.folderMissing;
+  if (info.expiresAt) cfg.expiresAt = info.expiresAt;
+  const red = parseFolderRedirect(info.title);
+  if (!red) {
+    saveFolder(storeId, cfg);
+    return cfg;
+  }
+  return applyRedirect(cfg, red, storeId);
+}
+async function maybeRotate(cfg, store, signal) {
+  if (isAgent.value || !store || store.mine === false) return cfg;
+  if (!cfg.expiresAt || cfg.rotating) return cfg;
+  if (cfg.expiresAt - Date.now() > 20 * 60 * 1e3) return cfg;
+  const oldExpired = folderExpired(cfg) || !!cfg.folderMissing;
+  cfg.rotating = true;
+  saveFolder(store.id, cfg);
+  try {
+    assertActive(signal, store.id);
+    const fresh = await createFolder({ title: "83-" + (store.name || "店铺") + "-续期", expiryHours: 1 });
+    const next = {
+      ...fresh,
+      title: (store.name || "店铺") + " · 续期分组",
+      activated: true,
+      previousFolderId: cfg.folderId,
+      ownFileIds: [],
+      mergedFileIds: [],
+      mergedPackIds: [],
+      lastMergedAt: 0,
+      ledger: "",
+      mainUpdatedAt: 0,
+      mainFileIds: [],
+      mainMembers: {},
+      memberTag: cfg.memberTag || ""
+    };
+    await writeTempMainFile(next, store.id);
+    const savedMain = loadFolder(store.id);
+    if (savedMain) {
+      next.mainUpdatedAt = savedMain.mainUpdatedAt || Date.now();
+      next.ledger = savedMain.ledger || next.ledger || "";
+      next.activated = true;
+    }
+    try {
+      await uploadCurrent(next, store, signal);
+    } catch (e) {
+    }
+    if (!oldExpired) {
+      cfg.next = {
+        folderId: next.folderId,
+        manageToken: next.manageToken,
+        expiresAt: next.expiresAt,
+        createdAt: Date.now(),
+        url: next.url
+      };
+      saveFolder(store.id, cfg);
+      try {
+        await syncTempMainFile(cfg, store.id);
+      } catch (e) {
+      }
+      try {
+        await renameFolder(cfg, folderRedirectTitle(cfg.next));
+      } catch (e) {
+      }
+    }
+    delete cfg.rotating;
+    next.previousFolder = cfg.folderId;
+    saveFolder(store.id, next);
+    try {
+      window.dispatchEvent(new CustomEvent("temp-folder-rotated", { detail: { storeId: store.id, cfg: next } }));
+    } catch (e) {
+    }
+    return next;
+  } catch (e) {
+    delete cfg.rotating;
+    saveFolder(store.id, cfg);
+    return cfg;
+  }
+}
+async function runTempAutoOnce(force = false) {
+  if (running || tempAutoHeld()) return { uploaded: false, merged: 0, skipped: true };
+  if (typeof document !== "undefined" && document.visibilityState === "hidden") return { uploaded: false, merged: 0 };
+  const store = activeStore.value;
+  if (!store) return { uploaded: false, merged: 0 };
+  let cfg = loadFolder(store.id);
+  if (!cfg || !cfg.folderId) return { uploaded: false, merged: 0, skipped: true };
+  if (!force && cfg.quotaBlockedAt && Date.now() - Number(cfg.quotaBlockedAt) < 20 * 60 * 1e3) {
+    return { uploaded: false, merged: 0, skipped: true };
+  }
+  if (!force && cfg.lastAutoAt && Date.now() - Number(cfg.lastAutoAt) < AUTO_SYNC_MS) {
+    return { uploaded: false, merged: 0, skipped: true };
+  }
+  const run2 = {
+    runId: String(Date.now()) + "-" + Math.random().toString(36).slice(2, 7),
+    storeId: store.id,
+    controller: typeof AbortController !== "undefined" ? new AbortController() : { signal: null, abort() {
+    } },
+    reason: ""
+  };
+  activeRun = run2;
+  running = true;
+  const signal = run2.controller.signal;
+  try {
+    localStorage.setItem(BUSY_KEY, JSON.stringify({ runId: run2.runId, storeId: run2.storeId, at: Date.now() }));
+  } catch (e) {
+  }
+  cfg.syncStartedAt = Date.now();
+  saveFolder(store.id, cfg);
+  let uploaded = false;
+  let merged = 0;
+  let pending = 0;
+  let blocked = false;
+  let finalList = null;
+  let statusDone = false;
+  try {
+    assertActive(signal, store.id);
+    if (!folderExpired(cfg)) cfg = await followRedirect(cfg, store.id);
+    assertActive(signal, store.id);
+    cfg = await maybeRotate(cfg, store, signal);
+    if (!cfg || !cfg.folderId) return { uploaded: false, merged: 0, skipped: true };
+    if (folderExpired(cfg)) {
+      emitAutoStatus({ storeId: store.id, running: false, status: "临时分组已过期，等店主续期或重新接入", at: Date.now() });
+      statusDone = true;
+      return { uploaded: false, merged: 0, skipped: true };
+    }
+    emitAutoStatus({ storeId: store.id, running: true, status: "自动同步中，正在上传并检查新包…", at: Date.now() });
+    assertActive(signal, store.id);
+    let uploadError = null;
+    try {
+      uploaded = await uploadCurrent(cfg, store, signal);
+    } catch (e) {
+      if (e && e.code === "TEMP_ABORTED") throw e;
+      uploadError = e;
+      if (e && (e.code === "HTTP_429" || e.status === 429)) {
+        cfg.quotaBlockedAt = Date.now();
+        saveFolder(store.id, cfg);
+      }
+    }
+    assertActive(signal, store.id);
+    const mainDue = !cfg.mainUpdatedAt || Date.now() - Number(cfg.mainUpdatedAt) >= MAIN_SYNC_MS || !!cfg.mainDirty;
+    if (mainDue) {
+      try {
+        await syncTempMainFile(cfg, store.id, { mergeRemote: true });
+      } catch (e) {
+        if (e && e.code === "TEMP_ABORTED") throw e;
+      }
+    }
+    assertActive(signal, store.id);
+    try {
+      const pulled = await pullOthers(cfg, store, signal);
+      merged = pulled.merged;
+      blocked = !!pulled.blocked;
+      pending = Number(pulled.pending) || 0;
+    } catch (e) {
+      if (e && e.code === "TEMP_ABORTED") throw e;
+    }
+    assertActive(signal, store.id);
+    try {
+      let list = await listFiles(cfg);
+      list = await tempCleanup(cfg, list);
+      list = await tempAckCleanup(cfg, list);
+      finalList = list;
+    } catch (e) {
+    }
+    cfg.lastAutoAt = Date.now();
+    delete cfg.syncStartedAt;
+    saveFolder(store.id, cfg);
+    let status;
+    if (uploadError) status = "自动上传失败：" + (uploadError.message || "网络错误");
+    else if (blocked && pending) status = "有 " + pending + " 个新包待拉取：浏览器限制直读，请点「手动下拉同步」或下载后导入";
+    else if (merged) status = "本轮已自动合并 " + merged + " 个包";
+    else if (uploaded) status = "已上传本店最新包，暂没有别人需要合并的新包";
+    else status = "已自动检查，没有新包";
+    emitAutoStatus({ storeId: store.id, running: false, status, uploaded, merged, pending, blocked, list: finalList, at: Date.now() });
+    statusDone = true;
+    return { uploaded, merged, pending, blocked };
+  } catch (e) {
+    if (e && e.code === "TEMP_ABORTED") return { uploaded: false, merged: 0, skipped: true, aborted: true };
+    return { uploaded: false, merged: 0, skipped: true };
+  } finally {
+    running = false;
+    try {
+      const raw = localStorage.getItem(BUSY_KEY) || "";
+      if (raw.startsWith("{")) {
+        const j = JSON.parse(raw);
+        if (j && j.runId === run2.runId) localStorage.removeItem(BUSY_KEY);
+      } else if (Number(raw) === Number(run2.runId)) {
+        localStorage.removeItem(BUSY_KEY);
+      }
+    } catch (e) {
+    }
+    const curStore = activeStore.value;
+    const sameStore = curStore && curStore.id === run2.storeId;
+    const cur = sameStore ? loadFolder(run2.storeId) : null;
+    if (cur) {
+      if (!run2.reason) cur.lastAutoAt = Date.now();
+      delete cur.syncStartedAt;
+      saveFolder(run2.storeId, cur);
+    }
+    if (!statusDone && !run2.reason) {
+      emitAutoStatus({ storeId: run2.storeId, running: false, status: "自动同步未完成，下一轮再试", at: Date.now() });
+    }
+    if (activeRun === run2) activeRun = null;
+  }
+}
+function autoDue() {
+  if (tempAutoHeld()) return false;
+  const store = activeStore.value;
+  if (!store) return false;
+  const cfg = loadFolder(store.id);
+  if (!cfg || !cfg.folderId) return false;
+  const at = Math.max(Number(cfg.lastAutoAt) || 0, Number(cfg.syncStartedAt) || 0);
+  return !at || Date.now() - at >= AUTO_SYNC_MS;
+}
+function autoTick() {
+  if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+  if (!autoDue()) return;
+  runTempAutoOnce();
+}
+let visibilityHandler = null;
+let switchHandler = null;
+let resumeAt = 0;
+function resumeTick() {
+  const now2 = Date.now();
+  if (now2 - resumeAt < 1500) return;
+  resumeAt = now2;
+  autoTick();
+}
+function startTempAutoSync() {
+  if (timer) return;
+  timer = window.setInterval(autoTick, 30 * 1e3);
+  visibilityHandler = () => {
+    if (document.visibilityState === "hidden") abortTempAutoForStore("", "page-hidden");
+    else resumeTick();
+  };
+  switchHandler = (e) => {
+    const d = e && e.detail;
+    abortTempAutoForStore(d && d.from, "store-switch");
+    try {
+      releaseTempAuto();
+    } catch (err) {
+    }
+  };
+  document.addEventListener("visibilitychange", visibilityHandler);
+  window.addEventListener("pageshow", resumeTick);
+  window.addEventListener("focus", resumeTick);
+  window.addEventListener("temp-store-switch", switchHandler);
+  autoTick();
+}
+function stopTempAutoSync() {
+  if (timer) {
+    clearInterval(timer);
+    timer = 0;
+  }
+  if (visibilityHandler) {
+    document.removeEventListener("visibilitychange", visibilityHandler);
+    visibilityHandler = null;
+  }
+  if (switchHandler) {
+    window.removeEventListener("temp-store-switch", switchHandler);
+    switchHandler = null;
+  }
+  window.removeEventListener("pageshow", resumeTick);
+  window.removeEventListener("focus", resumeTick);
+}
 const _hoisted_1$5 = { class: "sheet" };
 const _hoisted_2$5 = { class: "sheet-head" };
 const _hoisted_3$5 = { class: "sheet-body" };
@@ -28988,11 +29989,14 @@ const _sfc_main$5 = {
       working.value = agent.id;
       let uploaded = null;
       {
+        holdTempAuto(60, "share-link");
         try {
           uploaded = await uploadAgentLinkPack(agent.id);
-          tip("代理包已上传：" + uploaded.name + (uploaded.created ? "（已新建 1 小时分组）" : ""));
+          tip("代理初始链接已生成（20 分钟内有效）：" + uploaded.name + (uploaded.created ? "（已新建 1 小时分组）" : ""));
         } catch (e) {
           tip("代理包上传失败：" + (e && e.message ? e.message : "网络错误") + "，改发带数据链接");
+        } finally {
+          releaseTempAuto();
         }
       }
       const l = linksOf(agent, uploaded && uploaded.file ? uploaded.file.id : "");
@@ -29295,7 +30299,7 @@ const _sfc_main$5 = {
     };
   }
 };
-const AgentSheet = /* @__PURE__ */ _export_sfc(_sfc_main$5, [["__scopeId", "data-v-f872c13b"]]);
+const AgentSheet = /* @__PURE__ */ _export_sfc(_sfc_main$5, [["__scopeId", "data-v-0381f113"]]);
 const _hoisted_1$4 = { class: "sheet help-sheet" };
 const _hoisted_2$4 = { class: "sheet-head" };
 const _hoisted_3$4 = { class: "help-body" };
@@ -30361,482 +31365,6 @@ const _sfc_main$2 = {
   }
 };
 const QrCodeSheet = /* @__PURE__ */ _export_sfc(_sfc_main$2, [["__scopeId", "data-v-fc593c07"]]);
-const AUTO_SYNC_MS = 10 * 60 * 1e3;
-const PACK_TTL_MS$1 = 60 * 60 * 1e3;
-const MAIN_SYNC_MS = 10 * 60 * 1e3;
-const LEDGER_SYNC_MS$1 = 15 * 60 * 1e3;
-const REDIRECT_CHECK_MS = 10 * 60 * 1e3;
-const AUTO_STATUS_EVENT = "temp-auto-status";
-const HOLD_KEY = "stall3:tempfile:autoHold";
-const BUSY_KEY = "stall3:tempfile:autoBusy";
-function folderExpired(cfg, graceMs = 60 * 1e3) {
-  const t2 = Number(cfg && cfg.expiresAt) || 0;
-  return !!t2 && Date.now() > t2 + graceMs;
-}
-function holdTempAuto(seconds = 120) {
-  try {
-    localStorage.setItem(HOLD_KEY, String(Date.now() + seconds * 1e3));
-  } catch (e) {
-  }
-}
-function tempAutoHeld() {
-  try {
-    return Number(localStorage.getItem(HOLD_KEY) || 0) > Date.now();
-  } catch (e) {
-    return false;
-  }
-}
-function releaseTempAuto() {
-  try {
-    localStorage.removeItem(HOLD_KEY);
-  } catch (e) {
-  }
-}
-async function waitTempAutoIdle(maxMs = 18e3) {
-  const start = Date.now();
-  while (Date.now() - start < maxMs) {
-    let at = 0;
-    try {
-      at = Number(localStorage.getItem(BUSY_KEY) || 0);
-    } catch (e) {
-    }
-    if (!at || Date.now() - at > 45e3) return;
-    await new Promise((r) => setTimeout(r, 500));
-  }
-}
-function emitAutoStatus(detail) {
-  try {
-    window.dispatchEvent(new CustomEvent(AUTO_STATUS_EVENT, { detail }));
-  } catch (e) {
-  }
-}
-let timer = 0;
-let running = false;
-function stamp() {
-  const d = /* @__PURE__ */ new Date();
-  const pad = (n2) => String(n2).padStart(2, "0");
-  return d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + "-" + pad(d.getHours()) + pad(d.getMinutes());
-}
-function waitIdle() {
-  return new Promise((resolve2) => {
-    if (typeof window !== "undefined" && window.requestIdleCallback) {
-      window.requestIdleCallback(() => resolve2(), { timeout: 1800 });
-    } else setTimeout(resolve2, 30);
-  });
-}
-function packToText(pack) {
-  return "PACK1:" + LZString.compressToBase64(JSON.stringify(pack));
-}
-function parsePack(raw) {
-  let t2 = String(raw || "").replace(/^\uFEFF/, "").trim();
-  if (!t2) throw new Error("内容是空的");
-  if (/^PACK1:/i.test(t2)) {
-    const plain = LZString.decompressFromBase64(t2.slice(6).replace(/\s+/g, ""));
-    if (!plain) throw new Error("压缩包不完整");
-    return JSON.parse(plain);
-  }
-  try {
-    return JSON.parse(t2);
-  } catch (e) {
-  }
-  const a = t2.indexOf("{"), b = t2.lastIndexOf("}");
-  if (a >= 0 && b > a) return JSON.parse(t2.slice(a, b + 1));
-  throw new Error("数据包格式不对");
-}
-function isOwnFile(cfg, f) {
-  if (!cfg || !f) return false;
-  const ids = cfg.ownFileIds || [];
-  return !!(f.id && ids.includes(f.id));
-}
-function rememberOwn(cfg, f) {
-  if (!cfg || !f) return;
-  const ids = (cfg.ownFileIds || []).slice(-60);
-  if (f.id && !ids.includes(f.id)) ids.push(f.id);
-  cfg.ownFileIds = ids;
-}
-function visible(cfg, list) {
-  const oldest = Date.now() - PACK_TTL_MS$1;
-  const merged = cfg && cfg.mergedFileIds || [];
-  return (list || []).filter((f) => {
-    if (!f || isTempMainFile(f.name) || /^__83-init/i.test(f.name)) return false;
-    if (isOwnFile(cfg, f)) return false;
-    if (f.id && merged.includes(f.id)) return false;
-    const lab = tempFileLabel(f.name);
-    if (lab.kind === "agentlink" && !isAgent.value) return false;
-    if (f.createdAt && f.createdAt < oldest) return false;
-    return true;
-  });
-}
-async function tempCleanup(cfg, list) {
-  if (!cfg) return list;
-  const oldest = Date.now() - PACK_TTL_MS$1;
-  let changed = false;
-  for (const f of list || []) {
-    if (!f.id || isTempMainFile(f.name)) continue;
-    if (!f.createdAt || f.createdAt >= oldest) continue;
-    try {
-      await deleteFile(cfg, f.id);
-      changed = true;
-    } catch (e) {
-    }
-  }
-  return changed ? await listFiles(cfg) : list;
-}
-async function tempAckCleanup(cfg, list) {
-  const ack = ledgerAckTime(cfg && cfg.ledger ? cfg.ledger : "");
-  if (!ack) return list;
-  let changed = false;
-  for (const f of list || []) {
-    if (!f.id || isTempMainFile(f.name)) continue;
-    if (!f.createdAt || f.createdAt >= ack) continue;
-    try {
-      await deleteFile(cfg, f.id);
-      changed = true;
-    } catch (e) {
-    }
-  }
-  return changed ? await listFiles(cfg) : list;
-}
-async function deleteOlderOwn(cfg, tag, keepId) {
-  if (!tag) return;
-  const ids = (cfg.ownFileIds || []).filter((id) => id && id !== keepId);
-  for (const id of ids) {
-    try {
-      await deleteFile(cfg, id);
-    } catch (e) {
-    }
-  }
-  cfg.ownFileIds = keepId ? [keepId] : [];
-}
-async function syncLedgerIfDue(cfg, storeId, force = false) {
-  if (!force && cfg.lastLedgerAt && Date.now() - Number(cfg.lastLedgerAt) < LEDGER_SYNC_MS$1) return;
-  try {
-    await syncTempLedger(cfg, storeId, { markSelf: true });
-    cfg.lastLedgerAt = Date.now();
-    saveFolder(storeId, cfg);
-  } catch (e) {
-  }
-}
-async function uploadCurrent(cfg, store) {
-  const rev = dataRev();
-  if (cfg.lastAutoRev === rev && cfg.lastAutoUploadAt && Date.now() - Number(cfg.lastAutoUploadAt) < PACK_TTL_MS$1) {
-    return false;
-  }
-  await waitIdle();
-  const pack = exportStorePack(store.id);
-  if (!pack) return false;
-  const tag = tempUploadTag(store.id);
-  cfg.memberTag = tag;
-  const prefix = isAgent.value ? "83-store-full-" : "83-store-";
-  const name2 = prefix + store.id + "-" + tag + "-" + (state.meta.deviceId || "dev") + "-" + stamp() + ".json";
-  const file = new File([packToText(pack)], name2, { type: "application/json" });
-  const up = await uploadFile(cfg, file);
-  const id = up && up.files && up.files[0] && up.files[0].id || "";
-  if (!id) throw new Error("上传后没有返回文件 id");
-  rememberOwn(cfg, { id });
-  cfg.lastAutoHash = String(rev);
-  cfg.lastAutoRev = rev;
-  cfg.lastAutoUploadAt = Date.now();
-  saveFolder(store.id, cfg);
-  try {
-    await deleteOlderOwn(cfg, tag, id);
-  } catch (e) {
-  }
-  await syncLedgerIfDue(cfg, store.id);
-  return true;
-}
-async function pullOthers(cfg, store) {
-  let list = await listFiles(cfg);
-  let merged = 0;
-  let lastTime = 0;
-  let blocked = false;
-  const candidates = visible(cfg, list);
-  for (const f of candidates) {
-    let text;
-    try {
-      text = await fetchFileText(f);
-    } catch (e) {
-      blocked = true;
-      break;
-    }
-    let pack;
-    try {
-      pack = parsePack(text);
-    } catch (e) {
-      continue;
-    }
-    if (!pack || pack.kind !== "store" && pack.kind !== "agent") continue;
-    try {
-      await importStorePack(pack);
-      merged++;
-      lastTime = Math.max(lastTime, Number(f.createdAt) || Date.now());
-      cfg.mergedFileIds = (cfg.mergedFileIds || []).slice(-60);
-      if (f.id) cfg.mergedFileIds.push(f.id);
-    } catch (e) {
-    }
-  }
-  if (merged) {
-    cfg.lastMergedAt = Math.max(Number(cfg.lastMergedAt) || 0, lastTime || Date.now());
-    await syncLedgerIfDue(cfg, store.id);
-  }
-  saveFolder(store.id, cfg);
-  return { merged, list, pending: candidates.length, blocked };
-}
-function applyRedirect(cfg, red, storeId) {
-  const next = {
-    folderId: red.folderId,
-    manageToken: red.manageToken,
-    title: (cfg.title || "临时分组") + " · 已续期",
-    url: "https://tempfile.org/" + red.folderId + "/",
-    expiresAt: red.expiresAt || 0,
-    activated: true,
-    previousFolderId: cfg.folderId,
-    ownFileIds: [],
-    mergedFileIds: [],
-    lastMergedAt: 0,
-    ledger: "",
-    mainUpdatedAt: 0,
-    lastRedirectAt: Date.now(),
-    memberTag: cfg.memberTag || "",
-    syncStartedAt: cfg.syncStartedAt || 0
-  };
-  saveFolder(storeId, next);
-  try {
-    window.dispatchEvent(new CustomEvent("temp-folder-rotated", { detail: { storeId, cfg: next } }));
-  } catch (e) {
-  }
-  return next;
-}
-async function followRedirect(cfg, storeId) {
-  if (cfg.redirectTo) return applyRedirect(cfg, cfg.redirectTo, storeId);
-  if (cfg.lastRedirectAt && Date.now() - Number(cfg.lastRedirectAt) < REDIRECT_CHECK_MS) return cfg;
-  let info;
-  try {
-    info = await getFolder(cfg);
-  } catch (e) {
-    cfg.lastRedirectAt = Date.now();
-    saveFolder(storeId, cfg);
-    return cfg;
-  }
-  cfg.lastRedirectAt = Date.now();
-  delete cfg.folderMissing;
-  if (info.expiresAt) cfg.expiresAt = info.expiresAt;
-  const red = parseFolderRedirect(info.title);
-  if (!red) {
-    saveFolder(storeId, cfg);
-    return cfg;
-  }
-  return applyRedirect(cfg, red, storeId);
-}
-async function maybeRotate(cfg, store) {
-  if (isAgent.value || !store || store.mine === false) return cfg;
-  if (!cfg.expiresAt || cfg.rotating) return cfg;
-  if (cfg.expiresAt - Date.now() > 20 * 60 * 1e3) return cfg;
-  const oldExpired = folderExpired(cfg) || !!cfg.folderMissing;
-  cfg.rotating = true;
-  saveFolder(store.id, cfg);
-  try {
-    const fresh = await createFolder({ title: "83-" + (store.name || "店铺") + "-续期" });
-    const next = {
-      ...fresh,
-      title: (store.name || "店铺") + " · 续期分组",
-      activated: true,
-      previousFolderId: cfg.folderId,
-      ownFileIds: [],
-      mergedFileIds: [],
-      lastMergedAt: 0,
-      ledger: "",
-      mainUpdatedAt: 0,
-      memberTag: cfg.memberTag || "",
-      syncStartedAt: cfg.syncStartedAt || 0
-    };
-    await writeTempMainFile(next, store.id);
-    const savedMain = loadFolder(store.id);
-    if (savedMain) {
-      next.mainUpdatedAt = savedMain.mainUpdatedAt || Date.now();
-      next.ledger = savedMain.ledger || next.ledger || "";
-      next.activated = true;
-    }
-    try {
-      await uploadCurrent(next, store);
-    } catch (e) {
-    }
-    if (!oldExpired) {
-      cfg.next = {
-        folderId: next.folderId,
-        manageToken: next.manageToken,
-        expiresAt: next.expiresAt,
-        createdAt: Date.now(),
-        url: next.url
-      };
-      saveFolder(store.id, cfg);
-      try {
-        await syncTempMainFile(cfg, store.id);
-      } catch (e) {
-      }
-      try {
-        await renameFolder(cfg, folderRedirectTitle(cfg.next));
-      } catch (e) {
-      }
-    }
-    delete cfg.rotating;
-    next.previousFolder = cfg.folderId;
-    saveFolder(store.id, next);
-    try {
-      window.dispatchEvent(new CustomEvent("temp-folder-rotated", { detail: { storeId: store.id, cfg: next } }));
-    } catch (e) {
-    }
-    return next;
-  } catch (e) {
-    delete cfg.rotating;
-    saveFolder(store.id, cfg);
-    return cfg;
-  }
-}
-async function runTempAutoOnce(force = false) {
-  if (running || tempAutoHeld()) return { uploaded: false, merged: 0, skipped: true };
-  if (typeof document !== "undefined" && document.visibilityState === "hidden") return { uploaded: false, merged: 0 };
-  const store = activeStore.value;
-  if (!store) return { uploaded: false, merged: 0 };
-  let cfg = loadFolder(store.id);
-  if (!cfg || !cfg.folderId) return { uploaded: false, merged: 0, skipped: true };
-  if (!force && cfg.quotaBlockedAt && Date.now() - Number(cfg.quotaBlockedAt) < 20 * 60 * 1e3) {
-    return { uploaded: false, merged: 0, skipped: true };
-  }
-  if (!force && cfg.lastAutoAt && Date.now() - Number(cfg.lastAutoAt) < AUTO_SYNC_MS) {
-    return { uploaded: false, merged: 0, skipped: true };
-  }
-  running = true;
-  try {
-    localStorage.setItem(BUSY_KEY, String(Date.now()));
-  } catch (e) {
-  }
-  cfg.syncStartedAt = Date.now();
-  saveFolder(store.id, cfg);
-  let uploaded = false;
-  let merged = 0;
-  let listed = null;
-  let blocked = false;
-  let pending = 0;
-  let finalList = null;
-  let statusDone = false;
-  try {
-    if (!folderExpired(cfg)) cfg = await followRedirect(cfg, store.id);
-    cfg = await maybeRotate(cfg, store);
-    if (!cfg || !cfg.folderId) return { uploaded: false, merged: 0, skipped: true };
-    if (folderExpired(cfg)) {
-      emitAutoStatus({ storeId: store.id, running: false, status: "临时分组已过期，等店主续期或重新接入", at: Date.now() });
-      statusDone = true;
-      return { uploaded: false, merged: 0, skipped: true };
-    }
-    emitAutoStatus({ storeId: store.id, running: true, status: "自动同步中，正在上传并检查新包…", at: Date.now() });
-    if (!isAgent.value && store.mine !== false && (!cfg.mainUpdatedAt || Date.now() - Number(cfg.mainUpdatedAt) >= MAIN_SYNC_MS)) {
-      try {
-        await syncTempMainFile(cfg, store.id);
-      } catch (e) {
-      }
-    }
-    let uploadError = null;
-    try {
-      uploaded = await uploadCurrent(cfg, store);
-    } catch (e) {
-      uploadError = e;
-      if (e && (e.code === "HTTP_429" || e.status === 429)) {
-        cfg.quotaBlockedAt = Date.now();
-        saveFolder(store.id, cfg);
-      }
-    }
-    try {
-      const pulled = await pullOthers(cfg, store);
-      merged = pulled.merged;
-      listed = pulled.list;
-      blocked = !!pulled.blocked;
-      pending = Number(pulled.pending) || 0;
-    } catch (e) {
-    }
-    try {
-      let list = listed || await listFiles(cfg);
-      list = await tempCleanup(cfg, list);
-      list = await tempAckCleanup(cfg, list);
-      finalList = list;
-    } catch (e) {
-    }
-    cfg.lastAutoAt = Date.now();
-    delete cfg.syncStartedAt;
-    saveFolder(store.id, cfg);
-    let status;
-    if (uploadError) status = "自动上传失败：" + (uploadError.message || "网络错误");
-    else if (blocked && pending) status = "有 " + pending + " 个新包待拉取：浏览器限制直读，请点「手动下拉同步」或下载后导入";
-    else if (merged) status = "本轮已自动合并 " + merged + " 个包";
-    else if (uploaded) status = "已上传本店最新包，暂没有别人需要合并的新包";
-    else status = "已自动检查，没有新包";
-    emitAutoStatus({ storeId: store.id, running: false, status, uploaded, merged, pending, blocked, list: finalList, at: Date.now() });
-    statusDone = true;
-    return { uploaded, merged, pending, blocked };
-  } catch (e) {
-    return { uploaded: false, merged: 0, skipped: true };
-  } finally {
-    running = false;
-    try {
-      localStorage.removeItem(BUSY_KEY);
-    } catch (e) {
-    }
-    const cur = loadFolder(store.id);
-    if (cur) {
-      cur.lastAutoAt = Date.now();
-      delete cur.syncStartedAt;
-      saveFolder(store.id, cur);
-    }
-    if (!statusDone) {
-      emitAutoStatus({ storeId: store.id, running: false, status: "自动同步未完成，下一轮再试", at: Date.now() });
-    }
-  }
-}
-function autoDue() {
-  if (tempAutoHeld()) return false;
-  const store = activeStore.value;
-  if (!store) return false;
-  const cfg = loadFolder(store.id);
-  if (!cfg || !cfg.folderId) return false;
-  const stamp2 = Math.max(Number(cfg.lastAutoAt) || 0, Number(cfg.syncStartedAt) || 0);
-  return !stamp2 || Date.now() - stamp2 >= AUTO_SYNC_MS;
-}
-function autoTick() {
-  if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-  if (!autoDue()) return;
-  runTempAutoOnce();
-}
-let visibilityHandler = null;
-let resumeAt = 0;
-function resumeTick() {
-  const now2 = Date.now();
-  if (now2 - resumeAt < 1500) return;
-  resumeAt = now2;
-  autoTick();
-}
-function startTempAutoSync() {
-  if (timer) return;
-  timer = window.setInterval(autoTick, 30 * 1e3);
-  visibilityHandler = () => {
-    if (document.visibilityState === "visible") resumeTick();
-  };
-  document.addEventListener("visibilitychange", visibilityHandler);
-  window.addEventListener("pageshow", resumeTick);
-  window.addEventListener("focus", resumeTick);
-  autoTick();
-}
-function stopTempAutoSync() {
-  if (timer) {
-    clearInterval(timer);
-    timer = 0;
-  }
-  if (visibilityHandler) {
-    document.removeEventListener("visibilitychange", visibilityHandler);
-    visibilityHandler = null;
-  }
-  window.removeEventListener("pageshow", autoTick);
-  window.removeEventListener("focus", autoTick);
-}
 const _hoisted_1$1 = { class: "page me" };
 const _hoisted_2$1 = { class: "topbar" };
 const _hoisted_3$1 = { class: "topbar-id" };
@@ -30982,295 +31510,293 @@ const _hoisted_71 = {
 const _hoisted_72 = ["disabled"];
 const _hoisted_73 = { class: "ico" };
 const _hoisted_74 = { class: "txt" };
-const _hoisted_75 = ["disabled"];
-const _hoisted_76 = { class: "ico" };
-const _hoisted_77 = {
-  key: 3,
+const _hoisted_75 = {
+  key: 2,
   style: { "margin-top": "8px" }
 };
-const _hoisted_78 = { class: "db-head" };
-const _hoisted_79 = ["title"];
-const _hoisted_80 = { class: "tnum" };
-const _hoisted_81 = {
+const _hoisted_76 = { class: "db-head" };
+const _hoisted_77 = ["title"];
+const _hoisted_78 = { class: "tnum" };
+const _hoisted_79 = {
   class: "chips",
   style: { "margin-top": "4px" }
 };
-const _hoisted_82 = ["disabled", "onClick"];
-const _hoisted_83 = ["href"];
-const _hoisted_84 = {
-  key: 4,
+const _hoisted_80 = ["disabled", "onClick"];
+const _hoisted_81 = ["href"];
+const _hoisted_82 = {
+  key: 3,
   class: "hint",
   style: { "padding": "8px 0 2px" }
 };
-const _hoisted_85 = { class: "ico" };
-const _hoisted_86 = {
+const _hoisted_83 = { class: "ico" };
+const _hoisted_84 = {
   class: "row",
   style: { "cursor": "pointer" }
 };
-const _hoisted_87 = {
+const _hoisted_85 = {
   class: "ico",
   style: { "background": "var(--jade-soft)", "color": "var(--jade)" }
 };
-const _hoisted_88 = { class: "txt" };
-const _hoisted_89 = {
+const _hoisted_86 = { class: "txt" };
+const _hoisted_87 = {
   class: "hint",
   style: { "padding": "0 2px 10px" }
 };
+const _hoisted_88 = { class: "mono" };
+const _hoisted_89 = { key: 0 };
 const _hoisted_90 = { class: "mono" };
-const _hoisted_91 = { key: 0 };
-const _hoisted_92 = { class: "mono" };
-const _hoisted_93 = { key: 1 };
-const _hoisted_94 = {
+const _hoisted_91 = { key: 1 };
+const _hoisted_92 = {
   class: "row",
   style: { "cursor": "pointer" }
 };
-const _hoisted_95 = {
+const _hoisted_93 = {
   class: "ico",
   style: { "background": "var(--jade-soft)", "color": "var(--jade)" }
 };
-const _hoisted_96 = ["data-on"];
-const _hoisted_97 = { key: 3 };
-const _hoisted_98 = { class: "mini-head" };
-const _hoisted_99 = { class: "ico" };
-const _hoisted_100 = {
+const _hoisted_94 = ["data-on"];
+const _hoisted_95 = { key: 3 };
+const _hoisted_96 = { class: "mini-head" };
+const _hoisted_97 = { class: "ico" };
+const _hoisted_98 = {
   class: "row",
   style: { "cursor": "pointer" }
 };
-const _hoisted_101 = {
+const _hoisted_99 = {
   class: "ico",
   style: { "background": "var(--jade-soft)", "color": "var(--jade)" }
 };
-const _hoisted_102 = { class: "txt" };
-const _hoisted_103 = { class: "ico" };
-const _hoisted_104 = { class: "ico" };
-const _hoisted_105 = { class: "txt" };
-const _hoisted_106 = {
+const _hoisted_100 = { class: "txt" };
+const _hoisted_101 = { class: "ico" };
+const _hoisted_102 = { class: "ico" };
+const _hoisted_103 = { class: "txt" };
+const _hoisted_104 = {
   key: 0,
   class: "hint",
   style: { "display": "block", "margin-top": "2px" }
 };
-const _hoisted_107 = {
+const _hoisted_105 = {
   class: "right",
   style: { "color": "var(--jade)" }
 };
-const _hoisted_108 = {
+const _hoisted_106 = {
   key: 0,
   class: "store-box"
 };
-const _hoisted_109 = { class: "db-head" };
-const _hoisted_110 = { class: "tnum" };
-const _hoisted_111 = {
+const _hoisted_107 = { class: "db-head" };
+const _hoisted_108 = { class: "tnum" };
+const _hoisted_109 = {
   key: 0,
   class: "db-keys"
 };
-const _hoisted_112 = { class: "tnum" };
-const _hoisted_113 = {
+const _hoisted_110 = { class: "tnum" };
+const _hoisted_111 = {
   key: 1,
   class: "hint"
 };
+const _hoisted_112 = ["disabled"];
+const _hoisted_113 = { class: "ico" };
 const _hoisted_114 = ["disabled"];
 const _hoisted_115 = { class: "ico" };
-const _hoisted_116 = ["disabled"];
-const _hoisted_117 = { class: "ico" };
-const _hoisted_118 = { class: "ico clay" };
-const _hoisted_119 = { class: "txt" };
-const _hoisted_120 = { style: { "color": "var(--clay)" } };
-const _hoisted_121 = {
+const _hoisted_116 = { class: "ico clay" };
+const _hoisted_117 = { class: "txt" };
+const _hoisted_118 = { style: { "color": "var(--clay)" } };
+const _hoisted_119 = {
   key: 4,
   class: "banner jade",
   style: { "margin": "10px 0 0" }
 };
-const _hoisted_122 = { class: "fh-l" };
-const _hoisted_123 = { class: "fh-r" };
-const _hoisted_124 = {
+const _hoisted_120 = { class: "fh-l" };
+const _hoisted_121 = { class: "fh-r" };
+const _hoisted_122 = {
   key: 0,
   class: "fold-body"
 };
-const _hoisted_125 = { class: "kv-row" };
-const _hoisted_126 = { class: "kv-row" };
-const _hoisted_127 = {
+const _hoisted_123 = { class: "kv-row" };
+const _hoisted_124 = { class: "kv-row" };
+const _hoisted_125 = {
   class: "kv-row",
   style: { "border-bottom": "0" }
 };
-const _hoisted_128 = { class: "chips" };
-const _hoisted_129 = ["data-on"];
-const _hoisted_130 = ["data-on"];
-const _hoisted_131 = { class: "chips" };
-const _hoisted_132 = ["data-on", "onClick"];
-const _hoisted_133 = { class: "qr-entry-ico" };
-const _hoisted_134 = { class: "qr-entry-right" };
-const _hoisted_135 = { class: "qr-thumbs" };
-const _hoisted_136 = ["src"];
-const _hoisted_137 = {
+const _hoisted_126 = { class: "chips" };
+const _hoisted_127 = ["data-on"];
+const _hoisted_128 = ["data-on"];
+const _hoisted_129 = { class: "chips" };
+const _hoisted_130 = ["data-on", "onClick"];
+const _hoisted_131 = { class: "qr-entry-ico" };
+const _hoisted_132 = { class: "qr-entry-right" };
+const _hoisted_133 = { class: "qr-thumbs" };
+const _hoisted_134 = ["src"];
+const _hoisted_135 = {
   key: 1,
   class: "qr-thumb-empty"
 };
-const _hoisted_138 = ["src"];
-const _hoisted_139 = {
+const _hoisted_136 = ["src"];
+const _hoisted_137 = {
   key: 3,
   class: "qr-thumb-empty"
 };
-const _hoisted_140 = { class: "qr-go" };
-const _hoisted_141 = { class: "fh-l" };
-const _hoisted_142 = { class: "fh-r" };
-const _hoisted_143 = {
+const _hoisted_138 = { class: "qr-go" };
+const _hoisted_139 = { class: "fh-l" };
+const _hoisted_140 = { class: "fh-r" };
+const _hoisted_141 = {
   key: 0,
   class: "fold-body"
 };
-const _hoisted_144 = { class: "exp-main" };
-const _hoisted_145 = { class: "hint" };
-const _hoisted_146 = { class: "exp-right" };
-const _hoisted_147 = { class: "tnum" };
-const _hoisted_148 = { class: "exp-btns" };
-const _hoisted_149 = ["onClick"];
-const _hoisted_150 = ["onClick"];
-const _hoisted_151 = {
+const _hoisted_142 = { class: "exp-main" };
+const _hoisted_143 = { class: "hint" };
+const _hoisted_144 = { class: "exp-right" };
+const _hoisted_145 = { class: "tnum" };
+const _hoisted_146 = { class: "exp-btns" };
+const _hoisted_147 = ["onClick"];
+const _hoisted_148 = ["onClick"];
+const _hoisted_149 = {
   key: 0,
   class: "empty"
 };
-const _hoisted_152 = { class: "fh-l" };
-const _hoisted_153 = { class: "fh-r" };
-const _hoisted_154 = {
+const _hoisted_150 = { class: "fh-l" };
+const _hoisted_151 = { class: "fh-r" };
+const _hoisted_152 = {
   key: 0,
   class: "fold-body"
 };
-const _hoisted_155 = { class: "chips" };
-const _hoisted_156 = ["data-on", "onClick"];
-const _hoisted_157 = {
+const _hoisted_153 = { class: "chips" };
+const _hoisted_154 = ["data-on", "onClick"];
+const _hoisted_155 = {
   class: "kv-row",
   style: { "margin-top": "8px" }
 };
-const _hoisted_158 = { class: "chips" };
-const _hoisted_159 = ["data-on", "onClick"];
-const _hoisted_160 = { class: "fh-l" };
-const _hoisted_161 = { class: "fh-r" };
-const _hoisted_162 = {
+const _hoisted_156 = { class: "chips" };
+const _hoisted_157 = ["data-on", "onClick"];
+const _hoisted_158 = { class: "fh-l" };
+const _hoisted_159 = { class: "fh-r" };
+const _hoisted_160 = {
   key: 0,
   class: "fold-body"
 };
-const _hoisted_163 = { class: "kv-row" };
+const _hoisted_161 = { class: "kv-row" };
+const _hoisted_162 = { class: "kv-row" };
+const _hoisted_163 = {
+  class: "hint",
+  style: { "margin-left": "4px" }
+};
 const _hoisted_164 = { class: "kv-row" };
 const _hoisted_165 = {
   class: "hint",
   style: { "margin-left": "4px" }
 };
 const _hoisted_166 = { class: "kv-row" };
-const _hoisted_167 = {
-  class: "hint",
-  style: { "margin-left": "4px" }
-};
-const _hoisted_168 = { class: "kv-row" };
-const _hoisted_169 = { class: "mono" };
-const _hoisted_170 = {
+const _hoisted_167 = { class: "mono" };
+const _hoisted_168 = {
   class: "kv-row",
   style: { "border-bottom": "0" }
 };
-const _hoisted_171 = {
+const _hoisted_169 = {
   key: 0,
   class: "hint",
   style: { "color": "var(--clay)", "margin-top": "6px" }
 };
-const _hoisted_172 = {
+const _hoisted_170 = {
   class: "chips",
   style: { "margin-top": "10px" }
 };
-const _hoisted_173 = { class: "kv-row" };
-const _hoisted_174 = {
+const _hoisted_171 = { class: "kv-row" };
+const _hoisted_172 = {
   class: "hint",
   style: { "margin-top": "4px", "line-height": "1.65" }
 };
-const _hoisted_175 = {
+const _hoisted_173 = {
   class: "kv-row",
   style: { "margin-top": "10px" }
 };
-const _hoisted_176 = {
+const _hoisted_174 = {
   key: 1,
   class: "chips",
   style: { "margin-top": "8px" }
 };
-const _hoisted_177 = {
+const _hoisted_175 = {
   class: "hint",
   style: { "margin-top": "4px", "line-height": "1.65" }
 };
-const _hoisted_178 = { class: "chips" };
-const _hoisted_179 = ["onClick"];
-const _hoisted_180 = { class: "lt" };
-const _hoisted_181 = { class: "lb" };
-const _hoisted_182 = { class: "lx" };
-const _hoisted_183 = { class: "lwho" };
-const _hoisted_184 = {
+const _hoisted_176 = { class: "chips" };
+const _hoisted_177 = ["onClick"];
+const _hoisted_178 = { class: "lt" };
+const _hoisted_179 = { class: "lb" };
+const _hoisted_180 = { class: "lx" };
+const _hoisted_181 = { class: "lwho" };
+const _hoisted_182 = {
   key: 2,
   class: "hint",
   style: { "padding": "10px 0" }
 };
-const _hoisted_185 = {
+const _hoisted_183 = {
   class: "card",
   style: { "margin-top": "10px", "padding": "2px 12px" }
 };
+const _hoisted_184 = { class: "fh-l" };
+const _hoisted_185 = { class: "fh-r" };
 const _hoisted_186 = { class: "fh-l" };
 const _hoisted_187 = { class: "fh-r" };
-const _hoisted_188 = { class: "fh-l" };
-const _hoisted_189 = { class: "fh-r" };
-const _hoisted_190 = {
+const _hoisted_188 = {
   key: 0,
   class: "fold-body"
 };
-const _hoisted_191 = { class: "brand-strip brand-footer" };
-const _hoisted_192 = { class: "sheet" };
-const _hoisted_193 = { class: "sheet-head" };
-const _hoisted_194 = { class: "hint" };
-const _hoisted_195 = { class: "sheet-body" };
-const _hoisted_196 = ["onClick"];
-const _hoisted_197 = { class: "lt" };
-const _hoisted_198 = { class: "lb" };
-const _hoisted_199 = { class: "lx" };
-const _hoisted_200 = { class: "lwho" };
-const _hoisted_201 = {
+const _hoisted_189 = { class: "brand-strip brand-footer" };
+const _hoisted_190 = { class: "sheet" };
+const _hoisted_191 = { class: "sheet-head" };
+const _hoisted_192 = { class: "hint" };
+const _hoisted_193 = { class: "sheet-body" };
+const _hoisted_194 = ["onClick"];
+const _hoisted_195 = { class: "lt" };
+const _hoisted_196 = { class: "lb" };
+const _hoisted_197 = { class: "lx" };
+const _hoisted_198 = { class: "lwho" };
+const _hoisted_199 = {
   key: 0,
   class: "empty"
 };
-const _hoisted_202 = { class: "lm-main" };
-const _hoisted_203 = { class: "sheet avatar-sheet" };
-const _hoisted_204 = { class: "sheet-head" };
-const _hoisted_205 = { class: "sheet-body" };
-const _hoisted_206 = { class: "avatar-preview" };
-const _hoisted_207 = ["src"];
-const _hoisted_208 = {
+const _hoisted_200 = { class: "lm-main" };
+const _hoisted_201 = { class: "sheet avatar-sheet" };
+const _hoisted_202 = { class: "sheet-head" };
+const _hoisted_203 = { class: "sheet-body" };
+const _hoisted_204 = { class: "avatar-preview" };
+const _hoisted_205 = ["src"];
+const _hoisted_206 = {
   class: "q-btn jade",
   style: { "width": "100%", "margin-top": "12px", "cursor": "pointer" }
 };
-const _hoisted_209 = {
+const _hoisted_207 = {
   class: "row-2",
   style: { "display": "grid", "grid-template-columns": "1fr auto", "gap": "8px" }
 };
-const _hoisted_210 = { class: "menu-sheet" };
-const _hoisted_211 = { class: "menu-head" };
-const _hoisted_212 = { class: "hint" };
-const _hoisted_213 = ["onClick"];
-const _hoisted_214 = { class: "menu-txt" };
-const _hoisted_215 = { class: "sheet exp-sheet" };
-const _hoisted_216 = { class: "sheet-head" };
-const _hoisted_217 = { class: "sheet-body" };
+const _hoisted_208 = { class: "menu-sheet" };
+const _hoisted_209 = { class: "menu-head" };
+const _hoisted_210 = { class: "hint" };
+const _hoisted_211 = ["onClick"];
+const _hoisted_212 = { class: "menu-txt" };
+const _hoisted_213 = { class: "sheet exp-sheet" };
+const _hoisted_214 = { class: "sheet-head" };
+const _hoisted_215 = { class: "sheet-body" };
+const _hoisted_216 = { class: "chips wrap" };
+const _hoisted_217 = ["data-on", "onClick"];
 const _hoisted_218 = { class: "chips wrap" };
 const _hoisted_219 = ["data-on", "onClick"];
-const _hoisted_220 = { class: "chips wrap" };
-const _hoisted_221 = ["data-on", "onClick"];
-const _hoisted_222 = { class: "date-row" };
-const _hoisted_223 = { key: 0 };
-const _hoisted_224 = { class: "exp-hint" };
-const _hoisted_225 = { class: "sheet-foot" };
-const _hoisted_226 = {
+const _hoisted_220 = { class: "date-row" };
+const _hoisted_221 = { key: 0 };
+const _hoisted_222 = { class: "exp-hint" };
+const _hoisted_223 = { class: "sheet-foot" };
+const _hoisted_224 = {
   key: 0,
   class: "busy-mask",
   role: "status",
   "aria-live": "assertive"
 };
-const _hoisted_227 = { class: "busy-card" };
-const _hoisted_228 = { class: "busy-logo" };
-const _hoisted_229 = { class: "busy-title" };
-const _hoisted_230 = { class: "busy-text" };
-const _hoisted_231 = { class: "busy-bar" };
-const _hoisted_232 = { class: "busy-hint" };
+const _hoisted_225 = { class: "busy-card" };
+const _hoisted_226 = { class: "busy-logo" };
+const _hoisted_227 = { class: "busy-title" };
+const _hoisted_228 = { class: "busy-text" };
+const _hoisted_229 = { class: "busy-bar" };
+const _hoisted_230 = { class: "busy-hint" };
 const PACK_TTL_MS = 60 * 60 * 1e3;
 const LEDGER_SYNC_MS = 15 * 60 * 1e3;
 const _sfc_main$1 = {
@@ -31926,25 +32452,6 @@ const _sfc_main$1 = {
         tip("这个浏览器不让下载，请在浏览器里打开本页", "error");
       }
     }
-    async function doExportAgent() {
-      showBusy("正在打包交账包", "订单 / 库存流水 / 库存快照…", "spinner");
-      await ensureAllShardsLoaded();
-      const pack = exportAgentSalesPack();
-      if (!pack) {
-        hideBusy();
-        tip("没有可交账的代理数据", "error");
-        return;
-      }
-      const c = pack.collections;
-      const name2 = "代理交账-" + (agentProfile ? agentProfile.name : "代理") + "-" + (/* @__PURE__ */ new Date()).toISOString().slice(0, 10) + ".json";
-      if (downloadText(name2, JSON.stringify(pack), "application/json;charset=utf-8")) {
-        hideBusy();
-        tip("交账包已导出：" + c.orders.length + " 订单 / " + c.stockOps.length + " 条库存流水，发给店主导入即可");
-      } else {
-        hideBusy();
-        tip("这个浏览器不让下载，请在浏览器里打开本页", "error");
-      }
-    }
     async function onImportStore(e) {
       const f = e.target.files && e.target.files[0];
       e.target.value = "";
@@ -31967,11 +32474,12 @@ const _sfc_main$1 = {
       }
     }
     function agentHandoff() {
-      if (tf.value) {
-        tfUploadStore();
+      if (!tf.value) {
+        tip("先在「数据同步」接入店主给的临时分组，再上传本店全量包", "error");
+        jumpToFold("data");
         return;
       }
-      doExportAgent();
+      tfUploadStore();
     }
     const syncing = /* @__PURE__ */ ref(false);
     const tf = /* @__PURE__ */ ref(null);
@@ -32006,34 +32514,6 @@ const _sfc_main$1 = {
       if (f.id && !ids.includes(f.id)) ids.push(f.id);
       tf.value.ownFileIds = ids;
       if (store.value) saveFolder(store.value.id, tf.value);
-    }
-    async function deleteOlderOwnUploads(tag, keepId) {
-      if (!tf.value || !tag) return;
-      let list;
-      try {
-        list = await listTempFilesRetry(tf.value);
-      } catch (e) {
-        return;
-      }
-      for (const f of list) {
-        if (!f.id || f.id === keepId || isTempMainFile(f.name)) continue;
-        const ft = packageTag(f.name);
-        if (ft) {
-          if (ft === tag) {
-            try {
-              await deleteFile(tf.value, f.id);
-            } catch (e) {
-            }
-          }
-          continue;
-        }
-        if (legacyOwnPackage(f.name, state.meta.deviceId || "")) {
-          try {
-            await deleteFile(tf.value, f.id);
-          } catch (e) {
-          }
-        }
-      }
     }
     function applyFolderConfig(cfg) {
       tf.value = cfg;
@@ -32357,7 +32837,8 @@ const _sfc_main$1 = {
       }
     }
     async function pauseAutoForManual(seconds = 60) {
-      await waitTempAutoIdle(15e3);
+      holdTempAuto(seconds);
+      await waitTempAutoIdle(2e4);
       holdTempAuto(seconds);
     }
     async function tfRefresh(quiet = false) {
@@ -32421,97 +32902,75 @@ const _sfc_main$1 = {
       const pad = (n2) => String(n2).padStart(2, "0");
       return d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + "-" + pad(d.getHours()) + pad(d.getMinutes());
     }
-    async function verifyUploaded(name2, fileId) {
-      let last = null;
-      for (let i = 0; i < 3; i++) {
-        try {
-          const list = await listFiles(tf.value);
-          const hit = fileId ? list.find((f) => f.id === fileId) : list.find((f) => f.name === name2);
-          if (hit) {
-            tfFiles.value = visibleTempFiles(list);
-            return hit;
-          }
-        } catch (e) {
-          last = e;
-        }
-        await new Promise((r) => setTimeout(r, 500));
+    async function uploadCurrentPack(pack, label) {
+      if (!tf.value || !store.value) throw new Error("先建组或接入分组");
+      const st = store.value;
+      const role2 = isAgent.value ? "agent" : st.asAgent ? "agent" : st.mine === false ? "shared" : "owner";
+      const code = tempMemberCode(st.id);
+      const uploadedAt = Date.now();
+      const packId = "pk-" + code + "-" + uploadedAt.toString(36) + "-" + Math.random().toString(36).slice(2, 6);
+      pack.packId = packId;
+      pack.uploadedAt = uploadedAt;
+      pack.exportedAt = pack.exportedAt || uploadedAt;
+      pack.dataRev = String(dataRev());
+      pack.targetStoreId = st.id;
+      pack.storeRole = role2;
+      pack.parentStoreId = st.parentStoreId || "";
+      pack.audience = role2 === "owner" ? "all" : "owner";
+      const prefix = role2 === "owner" ? "83-store-" : "83-store-full-";
+      const name2 = prefix + st.id + "-" + code + "-" + (state.meta.deviceId || "dev") + "-" + stamp2() + ".json";
+      const file = new File([packToText(pack)], name2, { type: "application/json" });
+      const up = await uploadStandaloneFile(file, { expiryHours: 1 });
+      if (!up || !up.id) throw new Error("上传后没有返回文件 id");
+      const info = {
+        packId,
+        fileId: up.id,
+        size: Number(up.size) || 0,
+        downloadUrl: up.downloadUrl,
+        expiresAt: up.expiresAt || uploadedAt + 60 * 60 * 1e3,
+        uploadedAt,
+        exportedAt: pack.exportedAt,
+        dataRev: pack.dataRev,
+        targetStoreId: st.id,
+        storeRole: role2,
+        parentStoreId: st.parentStoreId || "",
+        audience: pack.audience
+      };
+      tf.value.pendingPack = info;
+      tf.value.memberTag = code;
+      tf.value.lastAutoRev = dataRev();
+      tf.value.lastAutoUploadAt = uploadedAt;
+      tf.value.mainDirty = true;
+      saveFolder(st.id, tf.value);
+      let mainError = null;
+      try {
+        await syncTempMainFile(tf.value, st.id, { mergeRemote: false });
+        const saved = loadFolder(st.id);
+        if (saved) applyFolderConfig(saved);
+      } catch (e) {
+        mainError = e;
       }
-      if (fileId) return { id: fileId, name: name2, size: 0, unverified: true };
-      if (last && last.code) throw last;
-      throw new Error("上传返回成功，但分组里查不到文件；FolderId 与 Token 可能不是同一组");
+      return { info, mainError, label };
     }
     async function tfUploadStore() {
       if (!tf.value || !store.value) {
         tip("先建组或接入分组", "error");
         return;
       }
-      const pack = isAgent.value ? exportAgentSalesPack() : exportStorePack(store.value.id);
-      if (!pack) {
-        tip(isAgent.value ? "没有可交账的代理数据" : "这家店导不出店铺包", "error");
-        return;
-      }
-      const prefix = isAgent.value ? "83-agent-" : "83-store-";
-      const tag = tempUploadTag(store.value.id);
-      const name2 = prefix + store.value.id + "-" + tag + "-" + (state.meta.deviceId || "dev") + "-" + stamp2() + ".json";
-      tfBusy.value = "upload";
-      showBusy(isAgent.value ? "正在上传交账包" : "正在上传本店数据包", isAgent.value ? "订单 / 库存流水 / 挂单，传到店主的分组…" : "先导出本店，再传到临时分组…", "spinner");
-      try {
-        await pauseAutoForManual(60);
-        busyStep(isAgent.value ? "导出我的交账数据…" : "导出本店数据…", 45);
-        const file = new File([packToText(pack)], name2, { type: "application/json" });
-        busyStep("上传到 tempfile…", 70);
-        const up = await uploadFile(tf.value, file);
-        const upId = up && up.files && up.files[0] && up.files[0].id || "";
-        busyStep("回读分组核对…", 90);
-        const got = await verifyUploaded(name2, upId);
-        rememberOwnFile(got);
-        if (!got.unverified) {
-          await deleteOlderOwnUploads(tag, got.id);
-          await syncGroupLedger(true);
-        }
-        busyStep("完成", 100);
-        tip(got.unverified ? "已上传；列表暂时读不到，稍后点「刷新文件」核对（不会重复上传）" : "已上传并核对：" + name2 + "（" + fmtBytes(got.size) + "）");
-      } catch (e) {
-        tfErr(e);
-      } finally {
-        tfBusy.value = "";
-        hideBusy();
-      }
-    }
-    async function tfUploadAgentFull() {
-      if (!tf.value || !store.value) {
-        tip("先接入店主的分组", "error");
-        return;
-      }
-      if (!isAgent.value) {
-        tip("这个入口只给代理店用", "error");
-        return;
-      }
       const pack = exportStorePack(store.value.id);
       if (!pack) {
-        tip("这家店导不出全量包", "error");
+        tip("这家店导不出店铺包", "error");
         return;
       }
-      const tag = tempUploadTag(store.value.id);
-      const name2 = "83-store-full-" + store.value.id + "-" + tag + "-" + (state.meta.deviceId || "dev") + "-" + stamp2() + ".json";
       tfBusy.value = "upload";
-      showBusy("正在上传代理店全量包", "商品 / 仓库 / 库存 / 订单 / 挂单 / 日志…", "spinner");
+      showBusy("正在上传本店全量包", "独立单文件上传，链接写入主文件…", "spinner");
       try {
         await pauseAutoForManual(60);
-        busyStep("导出本店全量…", 45);
-        const file = new File([packToText(pack)], name2, { type: "application/json" });
-        busyStep("上传到 tempfile…", 70);
-        const up = await uploadFile(tf.value, file);
-        const upId = up && up.files && up.files[0] && up.files[0].id || "";
-        busyStep("回读分组核对…", 90);
-        const got = await verifyUploaded(name2, upId);
-        rememberOwnFile(got);
-        if (!got.unverified) {
-          await deleteOlderOwnUploads(tag, got.id);
-          await syncGroupLedger(true);
-        }
+        busyStep("导出本店数据…", 45);
+        busyStep("上传独立单文件…", 70);
+        const r = await uploadCurrentPack(pack, "本店全量包");
         busyStep("完成", 100);
-        tip(got.unverified ? "已上传代理店全量包；列表暂时读不到，稍后刷新核对" : "已上传代理店全量包：" + name2 + "（" + fmtBytes(got.size) + "）");
+        tip(r.mainError ? "数据包已上传，但主文件更新失败：" + (r.mainError.message || "网络错误") : "已上传并更新主文件：" + fmtBytes(r.info ? r.info.size : 0));
       } catch (e) {
         tfErr(e);
       } finally {
@@ -32520,16 +32979,75 @@ const _sfc_main$1 = {
       }
     }
     async function autoPullOthers(manual = false) {
-      if (!tf.value || !store.value) return { merged: 0, skipped: 0 };
+      if (!tf.value || !store.value) return { merged: 0, skipped: 0, blocked: false };
       let merged = 0;
       let skipped = 0;
-      let lastTime = 0;
-      let list;
+      let blocked = false;
+      const st = store.value;
+      const selfCode = tempMemberCode(st.id);
+      const ownerView = !isAgent.value && st.mine !== false && !st.asAgent;
+      let remote = { copies: [], blocked: false };
+      try {
+        remote = await readTempMainCopies(tf.value);
+      } catch (e) {
+        if (manual) tfErr(e);
+        return { merged, skipped, blocked };
+      }
+      if (remote.blocked) blocked = true;
+      const main = mergeMainCopies(remote.copies);
+      for (const [code, mem] of Object.entries(main && main.members || {})) {
+        if (code === selfCode || !mem || !mem.pack) continue;
+        const p2 = mem.pack;
+        if (!p2.downloadUrl) continue;
+        if (p2.targetStoreId && p2.targetStoreId !== st.id) continue;
+        if (!ownerView && p2.audience !== "all") continue;
+        if (p2.expiresAt && p2.expiresAt + 60 * 1e3 < Date.now()) continue;
+        if (p2.packId && (tf.value.mergedPackIds || []).includes(p2.packId)) {
+          skipped++;
+          continue;
+        }
+        let text;
+        try {
+          text = await fetchFileText({ downloadUrl: p2.downloadUrl });
+        } catch (e) {
+          blocked = true;
+          if (manual) tip("浏览器不让直接读临时文件，请点文件行的「下载」再用「导入临时文件」");
+          break;
+        }
+        let pack;
+        try {
+          pack = parsePack2(text);
+        } catch (e) {
+          skipped++;
+          continue;
+        }
+        if (!pack || pack.kind !== "store" && pack.kind !== "agent") {
+          skipped++;
+          continue;
+        }
+        if (pack.targetStoreId && pack.targetStoreId !== st.id) {
+          skipped++;
+          continue;
+        }
+        if (!ownerView && pack.audience === "owner") {
+          skipped++;
+          continue;
+        }
+        try {
+          await importStorePack(pack);
+          merged++;
+          tf.value.mergedPackIds = (tf.value.mergedPackIds || []).slice(-80);
+          if (p2.packId) tf.value.mergedPackIds.push(p2.packId);
+          tf.value.mainMembers = { ...tf.value.mainMembers || {}, [code]: mem };
+        } catch (e) {
+          skipped++;
+          autoStatus.value = "有包导入失败：" + (e && e.message ? e.message : "格式不对");
+        }
+      }
+      let list = [];
       try {
         list = await listTempFilesRetry(tf.value);
       } catch (e) {
-        if (manual) tfErr(e);
-        return { merged, skipped };
       }
       for (const f of visibleTempFiles(list)) {
         if (!f || !f.id) continue;
@@ -32545,8 +33063,7 @@ const _sfc_main$1 = {
         try {
           text = await fetchFileText(f);
         } catch (e) {
-          if (manual) tip("浏览器不让直接读临时文件，请点文件行的「下载」再用下面的「导入临时文件」");
-          autoStatus.value = "浏览器限制自动读取，需手动下载导入";
+          blocked = true;
           break;
         }
         let pack;
@@ -32561,34 +33078,22 @@ const _sfc_main$1 = {
           continue;
         }
         try {
-          if (pack.kind === "store" || pack.kind === "agent") {
-            await importStorePack(pack);
-          } else {
-            await importBundle(pack);
-          }
+          if (pack.kind === "store" || pack.kind === "agent") await importStorePack(pack);
+          else await importBundle(pack);
           merged++;
-          lastTime = Math.max(lastTime, Number(f.createdAt) || Date.now());
           tf.value.mergedFileIds = (tf.value.mergedFileIds || []).slice(-60);
           if (f.id) tf.value.mergedFileIds.push(f.id);
         } catch (e) {
           skipped++;
-          autoStatus.value = "有包导入失败：" + (e && e.message ? e.message : "格式不对");
         }
       }
       if (merged) {
-        tf.value.lastMergedAt = Math.max(Number(tf.value.lastMergedAt) || 0, lastTime || Date.now());
+        tf.value.lastMergedAt = Date.now();
         await syncGroupLedger(true);
-        try {
-          let rest = await listTempFilesRetry(tf.value);
-          rest = await cleanupExpiredPackages(tf.value, rest);
-          rest = await cleanupTempFiles(tf.value, rest);
-          tfFiles.value = visibleTempFiles(rest);
-        } catch (e) {
-        }
         saveFolder(store.value.id, tf.value);
         autoStatus.value = "本轮已合并 " + merged + " 个包";
       }
-      return { merged, skipped };
+      return { merged, skipped, blocked };
     }
     async function tfPullAll() {
       if (!tf.value) {
@@ -32600,15 +33105,17 @@ const _sfc_main$1 = {
         return;
       }
       tfBusy.value = "autoPull";
-      showBusy("正在下拉同步", "逐个读取分组里的包，本机上传的包会跳过…", "spinner");
+      showBusy("正在下拉同步", "读取主文件里的成员包链接…", "spinner");
       try {
+        await pauseAutoForManual(60);
         const r = await autoPullOthers(true);
         if (r.merged) tip("已同步 " + r.merged + " 个包");
-        else if (autoStatus.value && autoStatus.value.includes("浏览器")) tip(autoStatus.value);
-        else tip("没有需要合并的新包（本机上传的包已跳过）");
+        else if (r.blocked) tip("浏览器限制自动读取，请用文件行的「下载」再「导入临时文件」");
+        else tip("没有需要合并的新包");
       } catch (e) {
         tfErr(e);
       } finally {
+        releaseTempAuto();
         tfBusy.value = "";
         hideBusy();
       }
@@ -32983,7 +33490,7 @@ const _sfc_main$1 = {
             ]),
             createBaseVNode("span", _hoisted_26$1, [
               _cache[54] || (_cache[54] = createBaseVNode("b", null, "交给店主", -1)),
-              createBaseVNode("small", null, toDisplayString(tf.value ? "传到分组" : "我的订单/流水"), 1)
+              createBaseVNode("small", null, toDisplayString(tf.value ? "本店全量包" : "先接入分组"), 1)
             ])
           ])) : createCommentVNode("", true),
           createBaseVNode("button", {
@@ -33162,7 +33669,7 @@ const _sfc_main$1 = {
           sec.value.data ? (openBlock(), createElementBlock("div", _hoisted_52, [
             _cache[86] || (_cache[86] = createBaseVNode("div", { class: "sync-note" }, [
               createBaseVNode("b", null, "默认：临时分组自动同步"),
-              createBaseVNode("span", null, "只同步当前店铺，给店主、代理、共管之间交换合并；每 10 分钟上传/拉取一次。换设备的全部店铺 + 设置，走下面的「跨设备用户同步」，手动导出/导入，不自动同步。")
+              createBaseVNode("span", null, "只同步当前店铺，给店主、代理、共管之间交换合并；每 15 分钟上传/拉取一次（测试）。换设备的全部店铺 + 设置，走下面的「跨设备用户同步」，手动导出/导入，不自动同步。")
             ], -1)),
             unref(inWeChat) ? (openBlock(), createElementBlock("div", _hoisted_53, [
               createVNode(_sfc_main$p, {
@@ -33183,7 +33690,7 @@ const _sfc_main$1 = {
               reqStats.value.serverRemaining == null ? (openBlock(), createElementBlock("span", _hoisted_55, " · 上传成功后同步服务端额度")) : createCommentVNode("", true)
             ]),
             !tf.value ? (openBlock(), createElementBlock("div", _hoisted_56, [
-              createBaseVNode("div", _hoisted_57, toDisplayString(unref(isAgent) ? "代理上传交账包要先用店主发来的链接接入分组；也可以手填店主给你的 FolderId + ManageToken。" : "先建一个本店的 1 小时分组（测试阶段），或填别人给你的 FolderId + ManageToken 接入。") + "token 只存本机，别发群里；每组最多 50 个文件、单文件 100MB。 ", 1),
+              createBaseVNode("div", _hoisted_57, toDisplayString(unref(isAgent) ? "代理要先用店主分享的初始链接接入分组；也可以手填店主给你的 FolderId + ManageToken。初始链接 20 分钟内有效。" : "先建一个本店的 1 小时分组（测试阶段），或填别人给你的 FolderId + ManageToken 接入。") + "token 只存本机，别发群里；每组最多 50 个文件、单文件 100MB。 ", 1),
               withDirectives(createBaseVNode("textarea", {
                 "onUpdate:modelValue": _cache[8] || (_cache[8] = ($event) => tfPaste.value = $event),
                 class: "inp",
@@ -33242,7 +33749,7 @@ const _sfc_main$1 = {
                 }, toDisplayString(tfExpiryText.value), 5)
               ]),
               createBaseVNode("div", _hoisted_65, toDisplayString(tf.value.folderId), 1),
-              tf.value && tf.value.mainUpdatedAt ? (openBlock(), createElementBlock("div", _hoisted_66, "主文件已就绪 · 含店主与代理名单")) : createCommentVNode("", true),
+              tf.value && tf.value.mainUpdatedAt ? (openBlock(), createElementBlock("div", _hoisted_66, "主文件已就绪 · 成员按成员号合并")) : createCommentVNode("", true),
               tfError.value ? (openBlock(), createElementBlock("div", _hoisted_67, toDisplayString(tfError.value), 1)) : createCommentVNode("", true),
               createBaseVNode("div", _hoisted_68, [
                 createBaseVNode("button", {
@@ -33265,14 +33772,14 @@ const _sfc_main$1 = {
                 }, "解除绑定")
               ]),
               createBaseVNode("div", _hoisted_71, [
-                createTextVNode(toDisplayString(unref(isAgent) ? "自动同步上传的是代理店全量包（商品/仓库/库存/订单/挂单）；店主会自动下拉合并。手动「交账包」仍只交自己的订单/流水。" : "上传到分组；代理的全量包会被自动下拉合并，也可点「手动下拉同步」。"), 1),
+                createTextVNode(toDisplayString(unref(isAgent) ? "自动同步上传的是代理店全量包（商品/仓库/库存/订单/挂单）；店主会自动下拉合并。手动上传也是全量包，不再区分「交账包」。" : "上传到分组；代理的全量包会被自动下拉合并，也可点「手动下拉同步」。"), 1),
                 _cache[67] || (_cache[67] = createBaseVNode("br", null, null, -1)),
-                _cache[68] || (_cache[68] = createTextVNode("自动同步：每 10 分钟上传/拉取一次；关闭页面/息屏超过 10 分钟后再打开或唤醒，会按上次同步时间立刻补一轮；每个成员只保留最新一份，上传新包会自动删自己的旧包；数据包上传 1 小时后自动删除（主文件保留）。", -1))
+                _cache[68] || (_cache[68] = createTextVNode("自动同步：测试期每 15 分钟一轮；主文件 15 分钟更新一次；关闭页面/息屏超过 15 分钟后再打开或唤醒，会按上次同步时间补一轮；切店/手动操作/页面隐藏会中断当前这一轮。分组里只放主文件；数据包和初始包走独立单文件，服务端最长 1 小时，初始链接按 20 分钟业务有效期判过期。", -1))
               ]),
               createBaseVNode("div", {
                 class: "hint",
                 style: normalizeStyle({ color: autoRunning.value ? "var(--jade)" : "var(--ink-3)", marginTop: "2px" })
-              }, " 自动同步：按上次更新时间判断，超过 10 分钟或数据有变化就补一轮 · " + toDisplayString(autoRunning.value ? "正在同步…" : autoStatus.value || "等待下一轮"), 5),
+              }, " 自动同步：按上次更新时间判断，超过 15 分钟或数据有变化就补一轮 · " + toDisplayString(autoRunning.value ? "正在同步…" : autoStatus.value || "等待下一轮"), 5),
               createBaseVNode("button", {
                 class: "row",
                 disabled: !!tfBusy.value,
@@ -33285,57 +33792,40 @@ const _sfc_main$1 = {
                   })
                 ]),
                 createBaseVNode("span", _hoisted_74, [
-                  createBaseVNode("b", null, toDisplayString(tfBusy.value === "upload" ? "正在上传…" : unref(isAgent) ? "手动上传交账包" : "手动上传本店数据包"), 1),
-                  createBaseVNode("span", null, toDisplayString(unref(isAgent) ? "只带我的订单/库存流水/挂单，店主导入后按代理合并" : "只带这家店，对方导入是「合并/接入」"), 1)
+                  createBaseVNode("b", null, toDisplayString(tfBusy.value === "upload" ? "正在上传…" : "手动上传本店全量包"), 1),
+                  _cache[69] || (_cache[69] = createBaseVNode("span", null, "独立单文件上传，链接立即写入本机主文件；不再区分交账包", -1))
                 ])
               ], 8, _hoisted_72),
-              unref(isAgent) ? (openBlock(), createElementBlock("button", {
-                key: 2,
-                class: "row",
-                disabled: !!tfBusy.value,
-                onClick: tfUploadAgentFull
-              }, [
-                createBaseVNode("span", _hoisted_76, [
-                  createVNode(_sfc_main$p, {
-                    name: "shop",
-                    size: 18
-                  })
-                ]),
-                _cache[69] || (_cache[69] = createBaseVNode("span", { class: "txt" }, [
-                  createBaseVNode("b", null, "上传代理店全量包"),
-                  createBaseVNode("span", null, "商品/仓库/库存/订单/挂单/日志整份；导入方只合数据，代理身份不变")
-                ], -1))
-              ], 8, _hoisted_75)) : createCommentVNode("", true),
-              tfFiles.value.length ? (openBlock(), createElementBlock("div", _hoisted_77, [
+              tfFiles.value.length ? (openBlock(), createElementBlock("div", _hoisted_75, [
                 (openBlock(true), createElementBlock(Fragment, null, renderList(tfFiles.value, (f) => {
                   return openBlock(), createElementBlock("div", {
                     key: f.id || f.name,
                     class: "db-line"
                   }, [
-                    createBaseVNode("div", _hoisted_78, [
+                    createBaseVNode("div", _hoisted_76, [
                       createBaseVNode("b", {
                         style: { "font-size": "12px", "word-break": "break-all" },
                         title: f.name
-                      }, toDisplayString(friendlyTempFileName(f)), 9, _hoisted_79),
-                      createBaseVNode("span", _hoisted_80, toDisplayString(fmtBytes(f.size)), 1)
+                      }, toDisplayString(friendlyTempFileName(f)), 9, _hoisted_77),
+                      createBaseVNode("span", _hoisted_78, toDisplayString(fmtBytes(f.size)), 1)
                     ]),
-                    createBaseVNode("div", _hoisted_81, [
+                    createBaseVNode("div", _hoisted_79, [
                       createBaseVNode("button", {
                         class: "chip sm",
                         disabled: !!tfBusy.value,
                         onClick: ($event) => tfPull(f)
-                      }, toDisplayString(tfBusy.value === "pull:" + f.id ? "正在拉取…" : "拉取并导入"), 9, _hoisted_82),
+                      }, toDisplayString(tfBusy.value === "pull:" + f.id ? "正在拉取…" : "拉取并导入"), 9, _hoisted_80),
                       createBaseVNode("a", {
                         class: "chip sm",
                         href: f.downloadUrl,
                         target: "_blank",
                         rel: "noopener",
                         style: { "text-decoration": "none" }
-                      }, "下载", 8, _hoisted_83)
+                      }, "下载", 8, _hoisted_81)
                     ])
                   ]);
                 }), 128))
-              ])) : (openBlock(), createElementBlock("div", _hoisted_84, "分组里还没有文件，先上传一份。"))
+              ])) : (openBlock(), createElementBlock("div", _hoisted_82, "分组里只放主文件；店铺包不在这里显示，点「手动下拉同步」从主文件链接拉取。"))
             ])),
             _cache[88] || (_cache[88] = createBaseVNode("div", { class: "mini-head" }, "跨设备用户同步（手动 · 全部店铺 + 设置）", -1)),
             _cache[89] || (_cache[89] = createBaseVNode("div", {
@@ -33346,7 +33836,7 @@ const _sfc_main$1 = {
               class: "row",
               onClick: doExportSync
             }, [
-              createBaseVNode("span", _hoisted_85, [
+              createBaseVNode("span", _hoisted_83, [
                 createVNode(_sfc_main$p, {
                   name: "download",
                   size: 18
@@ -33357,42 +33847,42 @@ const _sfc_main$1 = {
                 createBaseVNode("span", null, "所有店铺 + 设置，拿到另一台手动导入")
               ], -1))
             ]),
-            createBaseVNode("label", _hoisted_86, [
+            createBaseVNode("label", _hoisted_84, [
               createBaseVNode("input", {
                 type: "file",
                 accept: ".json,application/json",
                 style: { "display": "none" },
                 onChange: onImportSync
               }, null, 32),
-              createBaseVNode("span", _hoisted_87, [
+              createBaseVNode("span", _hoisted_85, [
                 createVNode(_sfc_main$p, {
                   name: "upload",
                   size: 18
                 })
               ]),
-              createBaseVNode("span", _hoisted_88, [
+              createBaseVNode("span", _hoisted_86, [
                 createBaseVNode("b", null, toDisplayString(syncing.value ? "正在覆盖…" : "导入全部用户同步包"), 1),
                 _cache[71] || (_cache[71] = createBaseVNode("span", null, "整套覆盖本机；不会自动拉取，需要你选文件", -1))
               ])
             ]),
-            createBaseVNode("div", _hoisted_89, [
+            createBaseVNode("div", _hoisted_87, [
               _cache[73] || (_cache[73] = createTextVNode("本机：", -1)),
-              createBaseVNode("span", _hoisted_90, toDisplayString(deviceId.value), 1),
-              unref(authUser).email ? (openBlock(), createElementBlock("span", _hoisted_91, [
+              createBaseVNode("span", _hoisted_88, toDisplayString(deviceId.value), 1),
+              unref(authUser).email ? (openBlock(), createElementBlock("span", _hoisted_89, [
                 _cache[72] || (_cache[72] = createTextVNode(" · 账号：", -1)),
-                createBaseVNode("span", _hoisted_92, toDisplayString(unref(authUser).email), 1)
+                createBaseVNode("span", _hoisted_90, toDisplayString(unref(authUser).email), 1)
               ])) : createCommentVNode("", true),
               createTextVNode(" · 上次同步：" + toDisplayString(lastSyncText.value), 1),
-              unref(state).meta.lastSyncDevice ? (openBlock(), createElementBlock("span", _hoisted_93, "（来自 " + toDisplayString(unref(state).meta.lastSyncDevice) + "）", 1)) : createCommentVNode("", true)
+              unref(state).meta.lastSyncDevice ? (openBlock(), createElementBlock("span", _hoisted_91, "（来自 " + toDisplayString(unref(state).meta.lastSyncDevice) + "）", 1)) : createCommentVNode("", true)
             ]),
-            createBaseVNode("label", _hoisted_94, [
+            createBaseVNode("label", _hoisted_92, [
               createBaseVNode("input", {
                 type: "file",
                 accept: ".json,application/json",
                 style: { "display": "none" },
                 onChange: onTempImport
               }, null, 32),
-              createBaseVNode("span", _hoisted_95, [
+              createBaseVNode("span", _hoisted_93, [
                 createVNode(_sfc_main$p, {
                   name: "upload",
                   size: 18
@@ -33417,14 +33907,14 @@ const _sfc_main$1 = {
                 class: "chev",
                 style: normalizeStyle({ transform: dataAdv.value ? "rotate(90deg)" : "none" })
               }, null, 8, ["style"])
-            ], 8, _hoisted_96),
-            dataAdv.value ? (openBlock(), createElementBlock("div", _hoisted_97, [
-              createBaseVNode("div", _hoisted_98, "这家店 · " + toDisplayString(store.value ? store.value.name : ""), 1),
+            ], 8, _hoisted_94),
+            dataAdv.value ? (openBlock(), createElementBlock("div", _hoisted_95, [
+              createBaseVNode("div", _hoisted_96, "这家店 · " + toDisplayString(store.value ? store.value.name : ""), 1),
               createBaseVNode("button", {
                 class: "row",
                 onClick: doExportStore
               }, [
-                createBaseVNode("span", _hoisted_99, [
+                createBaseVNode("span", _hoisted_97, [
                   createVNode(_sfc_main$p, {
                     name: "shop",
                     size: 18
@@ -33435,20 +33925,20 @@ const _sfc_main$1 = {
                   createBaseVNode("span", null, "店 + 挂载仓库 + 商品/库存/订单/挂单/本店日志；代理也能导全量，角色不变")
                 ], -1))
               ]),
-              createBaseVNode("label", _hoisted_100, [
+              createBaseVNode("label", _hoisted_98, [
                 createBaseVNode("input", {
                   type: "file",
                   accept: ".json,application/json",
                   style: { "display": "none" },
                   onChange: onImportStore
                 }, null, 32),
-                createBaseVNode("span", _hoisted_101, [
+                createBaseVNode("span", _hoisted_99, [
                   createVNode(_sfc_main$p, {
                     name: "upload",
                     size: 18
                   })
                 ]),
-                createBaseVNode("span", _hoisted_102, [
+                createBaseVNode("span", _hoisted_100, [
                   createBaseVNode("b", null, toDisplayString(importing.value ? "正在接入…" : "导入店铺数据包"), 1),
                   _cache[77] || (_cache[77] = createBaseVNode("span", null, "已有店只合数据、角色不变；新店按包类型建代理/共管", -1))
                 ])
@@ -33458,7 +33948,7 @@ const _sfc_main$1 = {
                 class: "row",
                 onClick: doExport
               }, [
-                createBaseVNode("span", _hoisted_103, [
+                createBaseVNode("span", _hoisted_101, [
                   createVNode(_sfc_main$p, {
                     name: "download",
                     size: 18
@@ -33486,40 +33976,40 @@ const _sfc_main$1 = {
                 class: "row",
                 onClick: loadDetail
               }, [
-                createBaseVNode("span", _hoisted_104, [
+                createBaseVNode("span", _hoisted_102, [
                   createVNode(_sfc_main$p, {
                     name: "box",
                     size: 18
                   })
                 ]),
-                createBaseVNode("span", _hoisted_105, [
+                createBaseVNode("span", _hoisted_103, [
                   createBaseVNode("b", null, toDisplayString(detail.value ? "明细合计 " + fmtBytes(detail.value.total) + " · " + detail.value.dbs.length + " 个库" : usage.value && usage.value.estimate && usage.value.estimate.usage != null ? "站点用量 " + fmtBytes(usage.value.estimate.usage) : "点一下测量"), 1),
-                  writeInfo.value ? (openBlock(), createElementBlock("span", _hoisted_106, toDisplayString(writeInfo.value), 1)) : createCommentVNode("", true),
+                  writeInfo.value ? (openBlock(), createElementBlock("span", _hoisted_104, toDisplayString(writeInfo.value), 1)) : createCommentVNode("", true),
                   createBaseVNode("span", null, toDisplayString(detail.value ? "浏览器口径 " + (usage.value && usage.value.estimate ? fmtBytes(usage.value.estimate.usage) : "—") + usageBreakdown.value + "（这个数字是估算、会滞后，以左边明细为准）" : "浏览器只给整个站点一个数；点开能看清每个库、每类数据各占多少"), 1)
                 ]),
-                createBaseVNode("span", _hoisted_107, toDisplayString(busying.value === "detail" ? "测量中…" : "明细"), 1)
+                createBaseVNode("span", _hoisted_105, toDisplayString(busying.value === "detail" ? "测量中…" : "明细"), 1)
               ]),
-              detail.value ? (openBlock(), createElementBlock("div", _hoisted_108, [
+              detail.value ? (openBlock(), createElementBlock("div", _hoisted_106, [
                 (openBlock(true), createElementBlock(Fragment, null, renderList(detail.value.dbs, (d) => {
                   return openBlock(), createElementBlock("div", {
                     key: d.name,
                     class: "db-line"
                   }, [
-                    createBaseVNode("div", _hoisted_109, [
+                    createBaseVNode("div", _hoisted_107, [
                       createBaseVNode("b", null, toDisplayString(d.name === detail.value.current ? "当前库" : /^stall3/i.test(d.name) ? "旧库" : "其他库") + " · " + toDisplayString(d.name), 1),
-                      createBaseVNode("span", _hoisted_110, toDisplayString(fmtBytes(d.size)), 1)
+                      createBaseVNode("span", _hoisted_108, toDisplayString(fmtBytes(d.size)), 1)
                     ]),
-                    d.name === detail.value.current && topCollections.value.length ? (openBlock(), createElementBlock("div", _hoisted_111, [
+                    d.name === detail.value.current && topCollections.value.length ? (openBlock(), createElementBlock("div", _hoisted_109, [
                       (openBlock(true), createElementBlock(Fragment, null, renderList(topCollections.value, (c) => {
                         return openBlock(), createElementBlock("span", {
                           key: c.k,
                           class: "db-k"
                         }, [
                           createTextVNode(toDisplayString(c.k) + " ", 1),
-                          createBaseVNode("em", _hoisted_112, toDisplayString(fmtBytes(c.b)), 1)
+                          createBaseVNode("em", _hoisted_110, toDisplayString(fmtBytes(c.b)), 1)
                         ]);
                       }), 128))
-                    ])) : d.name !== detail.value.current ? (openBlock(), createElementBlock("div", _hoisted_113, toDisplayString(/^stall3/i.test(d.name) ? "换配置档 / 清空数据时留下的旧数据" : "同站点下别的应用留下的库，不归本程序管"), 1)) : createCommentVNode("", true)
+                    ])) : d.name !== detail.value.current ? (openBlock(), createElementBlock("div", _hoisted_111, toDisplayString(/^stall3/i.test(d.name) ? "换配置档 / 清空数据时留下的旧数据" : "同站点下别的应用留下的库，不归本程序管"), 1)) : createCommentVNode("", true)
                   ]);
                 }), 128))
               ])) : createCommentVNode("", true),
@@ -33528,7 +34018,7 @@ const _sfc_main$1 = {
                 disabled: busying.value === "compact",
                 onClick: doCompact
               }, [
-                createBaseVNode("span", _hoisted_115, [
+                createBaseVNode("span", _hoisted_113, [
                   createVNode(_sfc_main$p, {
                     name: "layers",
                     size: 18
@@ -33538,13 +34028,13 @@ const _sfc_main$1 = {
                   createBaseVNode("b", null, "压缩数据（图片）"),
                   createBaseVNode("span", null, "商品图超过 60KB 重压到 320px；重复的库存行合并。日志和库存流水属追溯依据，一律不动")
                 ], -1))
-              ], 8, _hoisted_114),
+              ], 8, _hoisted_112),
               createBaseVNode("button", {
                 class: "row danger",
                 disabled: busying.value === "rebuild",
                 onClick: doRebuild
               }, [
-                createBaseVNode("span", _hoisted_117, [
+                createBaseVNode("span", _hoisted_115, [
                   createVNode(_sfc_main$p, {
                     name: "sync",
                     size: 18
@@ -33554,25 +34044,25 @@ const _sfc_main$1 = {
                   createBaseVNode("b", null, "重建当前库（缩回真实体积）"),
                   createBaseVNode("span", null, "搬进新库 + 校验通过才切换 + 旧库自动删除；旧库全程不动，中断也不丢数据")
                 ], -1))
-              ], 8, _hoisted_116),
+              ], 8, _hoisted_114),
               staleDbs.value.length ? (openBlock(), createElementBlock("button", {
                 key: 1,
                 class: "row danger",
                 onClick: doDropStale
               }, [
-                createBaseVNode("span", _hoisted_118, [
+                createBaseVNode("span", _hoisted_116, [
                   createVNode(_sfc_main$p, {
                     name: "trash",
                     size: 18
                   })
                 ]),
-                createBaseVNode("span", _hoisted_119, [
-                  createBaseVNode("b", _hoisted_120, "清理 " + toDisplayString(staleDbs.value.length) + " 个旧库", 1),
+                createBaseVNode("span", _hoisted_117, [
+                  createBaseVNode("b", _hoisted_118, "清理 " + toDisplayString(staleDbs.value.length) + " 个旧库", 1),
                   _cache[81] || (_cache[81] = createBaseVNode("span", null, "只删历史配置档留下的库，当前库一律保留", -1))
                 ])
               ])) : createCommentVNode("", true)
             ])) : createCommentVNode("", true),
-            report.value ? (openBlock(), createElementBlock("div", _hoisted_121, [
+            report.value ? (openBlock(), createElementBlock("div", _hoisted_119, [
               createVNode(_sfc_main$p, {
                 name: "sync",
                 size: 16
@@ -33602,11 +34092,11 @@ const _sfc_main$1 = {
             class: "fold-head",
             onClick: _cache[13] || (_cache[13] = ($event) => toggle("cash"))
           }, [
-            createBaseVNode("span", _hoisted_122, [
+            createBaseVNode("span", _hoisted_120, [
               createVNode(BrandMark, { size: 18 }),
               _cache[91] || (_cache[91] = createBaseVNode("b", null, "收银台", -1))
             ]),
-            createBaseVNode("span", _hoisted_123, [
+            createBaseVNode("span", _hoisted_121, [
               createBaseVNode("span", null, toDisplayString(unref(state).settings.sellLayout === "two" ? "两栏" : "单栏") + " · 折扣 " + toDisplayString(unref(state).settings.minDiscount) + "折起", 1),
               createVNode(_sfc_main$p, {
                 class: "chev",
@@ -33615,8 +34105,8 @@ const _sfc_main$1 = {
               })
             ])
           ]),
-          sec.value.cash ? (openBlock(), createElementBlock("div", _hoisted_124, [
-            createBaseVNode("div", _hoisted_125, [
+          sec.value.cash ? (openBlock(), createElementBlock("div", _hoisted_122, [
+            createBaseVNode("div", _hoisted_123, [
               _cache[92] || (_cache[92] = createBaseVNode("span", null, [
                 createTextVNode("显示成本/毛利"),
                 createBaseVNode("small", { class: "hint" }, "代理永远不显示")
@@ -33627,7 +34117,7 @@ const _sfc_main$1 = {
                 "onUpdate:modelValue": _cache[14] || (_cache[14] = (v) => unref(setSetting)("showCost", !!v))
               }, null, 8, ["model-value"])
             ]),
-            createBaseVNode("div", _hoisted_126, [
+            createBaseVNode("div", _hoisted_124, [
               _cache[93] || (_cache[93] = createBaseVNode("span", null, [
                 createTextVNode("收款后语音播报"),
                 createBaseVNode("small", { class: "hint" }, "金额/找零")
@@ -33638,7 +34128,7 @@ const _sfc_main$1 = {
                 "onUpdate:modelValue": _cache[15] || (_cache[15] = (v) => unref(setSetting)("voice", !!v))
               }, null, 8, ["model-value"])
             ]),
-            createBaseVNode("div", _hoisted_127, [
+            createBaseVNode("div", _hoisted_125, [
               _cache[94] || (_cache[94] = createBaseVNode("span", null, [
                 createTextVNode("显示微信/支付宝二维码"),
                 createBaseVNode("small", { class: "hint" }, "收款码没填就不显示")
@@ -33653,17 +34143,17 @@ const _sfc_main$1 = {
               class: "field-label",
               style: { "margin-top": "10px" }
             }, "选择商品布局", -1)),
-            createBaseVNode("div", _hoisted_128, [
+            createBaseVNode("div", _hoisted_126, [
               createBaseVNode("button", {
                 class: "chip",
                 "data-on": unref(state).settings.sellLayout !== "two",
                 onClick: _cache[17] || (_cache[17] = ($event) => unref(setSetting)("sellLayout", "single"))
-              }, "单栏 · 按钮更大", 8, _hoisted_129),
+              }, "单栏 · 按钮更大", 8, _hoisted_127),
               createBaseVNode("button", {
                 class: "chip",
                 "data-on": unref(state).settings.sellLayout === "two",
                 onClick: _cache[18] || (_cache[18] = ($event) => unref(setSetting)("sellLayout", "two"))
-              }, "两栏 · 一屏多看", 8, _hoisted_130)
+              }, "两栏 · 一屏多看", 8, _hoisted_128)
             ]),
             _cache[97] || (_cache[97] = createBaseVNode("div", {
               class: "hint",
@@ -33673,14 +34163,14 @@ const _sfc_main$1 = {
               class: "field-label",
               style: { "margin-top": "10px" }
             }, "最低折扣（店主定，低于此不给折）", -1)),
-            createBaseVNode("div", _hoisted_131, [
+            createBaseVNode("div", _hoisted_129, [
               (openBlock(), createElementBlock(Fragment, null, renderList([10, 9.5, 9, 8.5, 8, 7.5, 7], (d) => {
                 return createBaseVNode("button", {
                   key: d,
                   class: "chip",
                   "data-on": Number(unref(state).settings.minDiscount) === d,
                   onClick: ($event) => unref(setSetting)("minDiscount", d)
-                }, toDisplayString(d) + "折起", 9, _hoisted_132);
+                }, toDisplayString(d) + "折起", 9, _hoisted_130);
               }), 64))
             ]),
             _cache[99] || (_cache[99] = createBaseVNode("div", {
@@ -33692,7 +34182,7 @@ const _sfc_main$1 = {
               style: { "margin-top": "14px" },
               onClick: _cache[19] || (_cache[19] = ($event) => qrOpen.value = true)
             }, [
-              createBaseVNode("span", _hoisted_133, [
+              createBaseVNode("span", _hoisted_131, [
                 createVNode(_sfc_main$p, {
                   name: "qrcode",
                   size: 19
@@ -33702,24 +34192,24 @@ const _sfc_main$1 = {
                 createBaseVNode("b", null, "收款二维码"),
                 createBaseVNode("small", null, "微信 / 支付宝，可上传图片或贴链接")
               ], -1)),
-              createBaseVNode("span", _hoisted_134, [
-                createBaseVNode("span", _hoisted_135, [
+              createBaseVNode("span", _hoisted_132, [
+                createBaseVNode("span", _hoisted_133, [
                   unref(storePayQR)("wechat") ? (openBlock(), createElementBlock("img", {
                     key: 0,
                     loading: "lazy",
                     decoding: "async",
                     src: unref(storePayQR)("wechat"),
                     alt: "微信收款码"
-                  }, null, 8, _hoisted_136)) : (openBlock(), createElementBlock("span", _hoisted_137, "微")),
+                  }, null, 8, _hoisted_134)) : (openBlock(), createElementBlock("span", _hoisted_135, "微")),
                   unref(storePayQR)("alipay") ? (openBlock(), createElementBlock("img", {
                     key: 2,
                     loading: "lazy",
                     decoding: "async",
                     src: unref(storePayQR)("alipay"),
                     alt: "支付宝收款码"
-                  }, null, 8, _hoisted_138)) : (openBlock(), createElementBlock("span", _hoisted_139, "支"))
+                  }, null, 8, _hoisted_136)) : (openBlock(), createElementBlock("span", _hoisted_137, "支"))
                 ]),
-                createBaseVNode("span", _hoisted_140, [
+                createBaseVNode("span", _hoisted_138, [
                   createTextVNode(toDisplayString(unref(isAgent) ? "查看" : "设置"), 1),
                   createVNode(_sfc_main$p, {
                     name: "chev",
@@ -33741,14 +34231,14 @@ const _sfc_main$1 = {
             class: "fold-head",
             onClick: _cache[20] || (_cache[20] = ($event) => toggle("cost"))
           }, [
-            createBaseVNode("span", _hoisted_141, [
+            createBaseVNode("span", _hoisted_139, [
               createVNode(_sfc_main$p, {
                 name: "chart",
                 size: 17
               }),
               _cache[101] || (_cache[101] = createBaseVNode("b", null, "杂费与摊位费", -1))
             ]),
-            createBaseVNode("span", _hoisted_142, [
+            createBaseVNode("span", _hoisted_140, [
               createBaseVNode("span", null, toDisplayString(unref(expenses).length) + " 笔 · 本月摊 " + toDisplayString(unref(money)(costMonth.value)), 1),
               createVNode(_sfc_main$p, {
                 class: "chev",
@@ -33757,7 +34247,7 @@ const _sfc_main$1 = {
               })
             ])
           ]),
-          sec.value.cost ? (openBlock(), createElementBlock("div", _hoisted_143, [
+          sec.value.cost ? (openBlock(), createElementBlock("div", _hoisted_141, [
             _cache[104] || (_cache[104] = createBaseVNode("div", {
               class: "hint",
               style: { "line-height": "1.8", "padding": "6px 0 2px" }
@@ -33771,9 +34261,9 @@ const _sfc_main$1 = {
                 key: e.id,
                 class: "exp-row"
               }, [
-                createBaseVNode("div", _hoisted_144, [
+                createBaseVNode("div", _hoisted_142, [
                   createBaseVNode("b", null, toDisplayString(e.name || unref(kindName)(e.kind)), 1),
-                  createBaseVNode("span", _hoisted_145, [
+                  createBaseVNode("span", _hoisted_143, [
                     createTextVNode(toDisplayString(unref(modeName)(e.mode)), 1),
                     e.mode !== "once" ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [
                       createTextVNode(" · " + toDisplayString(ymd(e.from)) + " → " + toDisplayString(ymd(e.to)), 1)
@@ -33782,9 +34272,9 @@ const _sfc_main$1 = {
                     ], 64))
                   ])
                 ]),
-                createBaseVNode("div", _hoisted_146, [
-                  createBaseVNode("b", _hoisted_147, toDisplayString(unref(money)(e.amount)), 1),
-                  createBaseVNode("div", _hoisted_148, [
+                createBaseVNode("div", _hoisted_144, [
+                  createBaseVNode("b", _hoisted_145, toDisplayString(unref(money)(e.amount)), 1),
+                  createBaseVNode("div", _hoisted_146, [
                     createBaseVNode("button", {
                       class: "icon-btn",
                       "aria-label": "编辑",
@@ -33794,7 +34284,7 @@ const _sfc_main$1 = {
                         name: "edit",
                         size: 15
                       })
-                    ], 8, _hoisted_149),
+                    ], 8, _hoisted_147),
                     createBaseVNode("button", {
                       class: "icon-btn danger",
                       "aria-label": "删除",
@@ -33804,12 +34294,12 @@ const _sfc_main$1 = {
                         name: "trash",
                         size: 15
                       })
-                    ], 8, _hoisted_150)
+                    ], 8, _hoisted_148)
                   ])
                 ])
               ]);
             }), 128)),
-            !unref(expenses).length ? (openBlock(), createElementBlock("div", _hoisted_151, [..._cache[102] || (_cache[102] = [
+            !unref(expenses).length ? (openBlock(), createElementBlock("div", _hoisted_149, [..._cache[102] || (_cache[102] = [
               createBaseVNode("b", null, "还没记过杂费", -1),
               createTextVNode("摊位费按天摊进去，净利才准", -1)
             ])])) : createCommentVNode("", true),
@@ -33838,14 +34328,14 @@ const _sfc_main$1 = {
             class: "fold-head",
             onClick: _cache[21] || (_cache[21] = ($event) => toggle("look"))
           }, [
-            createBaseVNode("span", _hoisted_152, [
+            createBaseVNode("span", _hoisted_150, [
               createVNode(_sfc_main$p, {
                 name: "theme",
                 size: 17
               }),
               _cache[105] || (_cache[105] = createBaseVNode("b", null, "外观", -1))
             ]),
-            createBaseVNode("span", _hoisted_153, [
+            createBaseVNode("span", _hoisted_151, [
               createBaseVNode("span", null, toDisplayString(unref(state).settings.dark ? "夜间" : "日间") + " · 字号" + toDisplayString((unref(FONT_STEPS).find((f) => f.key === unref(state).settings.fontScale) || {}).name || "标准"), 1),
               createVNode(_sfc_main$p, {
                 class: "chev",
@@ -33854,19 +34344,19 @@ const _sfc_main$1 = {
               })
             ])
           ]),
-          sec.value.look ? (openBlock(), createElementBlock("div", _hoisted_154, [
+          sec.value.look ? (openBlock(), createElementBlock("div", _hoisted_152, [
             _cache[107] || (_cache[107] = createBaseVNode("div", { class: "field-label" }, "主题色", -1)),
-            createBaseVNode("div", _hoisted_155, [
+            createBaseVNode("div", _hoisted_153, [
               (openBlock(true), createElementBlock(Fragment, null, renderList(unref(THEME_COLORS), (c) => {
                 return openBlock(), createElementBlock("button", {
                   key: c.key,
                   class: "chip",
                   "data-on": unref(state).settings.themeColor === c.key,
                   onClick: ($event) => themeColor(c.key)
-                }, toDisplayString(c.name), 9, _hoisted_156);
+                }, toDisplayString(c.name), 9, _hoisted_154);
               }), 128))
             ]),
-            createBaseVNode("div", _hoisted_157, [
+            createBaseVNode("div", _hoisted_155, [
               _cache[106] || (_cache[106] = createBaseVNode("span", null, "夜间模式", -1)),
               createVNode(_component_var_switch, {
                 "model-value": !!unref(state).settings.dark,
@@ -33875,14 +34365,14 @@ const _sfc_main$1 = {
               }, null, 8, ["model-value"])
             ]),
             _cache[108] || (_cache[108] = createBaseVNode("div", { class: "field-label" }, "字号", -1)),
-            createBaseVNode("div", _hoisted_158, [
+            createBaseVNode("div", _hoisted_156, [
               (openBlock(true), createElementBlock(Fragment, null, renderList(unref(FONT_STEPS), (f) => {
                 return openBlock(), createElementBlock("button", {
                   key: f.key,
                   class: "chip",
                   "data-on": unref(state).settings.fontScale === f.key,
                   onClick: ($event) => setFont(f.key)
-                }, toDisplayString(f.name), 9, _hoisted_159);
+                }, toDisplayString(f.name), 9, _hoisted_157);
               }), 128))
             ])
           ])) : createCommentVNode("", true)
@@ -33894,14 +34384,14 @@ const _sfc_main$1 = {
             class: "fold-head",
             onClick: _cache[22] || (_cache[22] = ($event) => toggle("local"))
           }, [
-            createBaseVNode("span", _hoisted_160, [
+            createBaseVNode("span", _hoisted_158, [
               createVNode(_sfc_main$p, {
                 name: "box",
                 size: 17
               }),
               _cache[109] || (_cache[109] = createBaseVNode("b", null, "本机存储、功能与日志", -1))
             ]),
-            createBaseVNode("span", _hoisted_161, [
+            createBaseVNode("span", _hoisted_159, [
               createBaseVNode("span", null, toDisplayString(usage.value && usage.value.estimate && usage.value.estimate.usage != null ? fmtBytes(usage.value.estimate.usage) : "—"), 1),
               createVNode(_sfc_main$p, {
                 class: "chev",
@@ -33910,35 +34400,35 @@ const _sfc_main$1 = {
               })
             ])
           ]),
-          sec.value.local ? (openBlock(), createElementBlock("div", _hoisted_162, [
-            createBaseVNode("div", _hoisted_163, [
+          sec.value.local ? (openBlock(), createElementBlock("div", _hoisted_160, [
+            createBaseVNode("div", _hoisted_161, [
               _cache[110] || (_cache[110] = createBaseVNode("span", null, "存储方案", -1)),
               createBaseVNode("b", null, toDisplayString(unref(state).storageLabel || unref(state).storageKind), 1)
             ]),
-            createBaseVNode("div", _hoisted_164, [
+            createBaseVNode("div", _hoisted_162, [
               _cache[111] || (_cache[111] = createBaseVNode("span", null, "IndexedDB", -1)),
               createBaseVNode("b", null, [
                 createTextVNode(toDisplayString(usage.value && usage.value.estimate && usage.value.estimate.usage != null ? fmtBytes(usage.value.estimate.usage) : "—") + " ", 1),
-                createBaseVNode("span", _hoisted_165, "配额 " + toDisplayString(usage.value && usage.value.estimate && usage.value.estimate.quota != null ? fmtBytes(usage.value.estimate.quota) : "—"), 1)
+                createBaseVNode("span", _hoisted_163, "配额 " + toDisplayString(usage.value && usage.value.estimate && usage.value.estimate.quota != null ? fmtBytes(usage.value.estimate.quota) : "—"), 1)
               ])
             ]),
-            createBaseVNode("div", _hoisted_166, [
+            createBaseVNode("div", _hoisted_164, [
               _cache[112] || (_cache[112] = createBaseVNode("span", null, "localStorage", -1)),
               createBaseVNode("b", null, [
                 createTextVNode(toDisplayString(usage.value ? fmtBytes(usage.value.localBytes) : "—"), 1),
-                createBaseVNode("span", _hoisted_167, toDisplayString(usage.value ? usage.value.localKeys + " 个键" : ""), 1)
+                createBaseVNode("span", _hoisted_165, toDisplayString(usage.value ? usage.value.localKeys + " 个键" : ""), 1)
               ])
             ]),
-            createBaseVNode("div", _hoisted_168, [
+            createBaseVNode("div", _hoisted_166, [
               _cache[113] || (_cache[113] = createBaseVNode("span", null, "设备", -1)),
-              createBaseVNode("b", _hoisted_169, toDisplayString(deviceId.value), 1)
+              createBaseVNode("b", _hoisted_167, toDisplayString(deviceId.value), 1)
             ]),
-            createBaseVNode("div", _hoisted_170, [
+            createBaseVNode("div", _hoisted_168, [
               _cache[114] || (_cache[114] = createBaseVNode("span", null, "数据量", -1)),
               createBaseVNode("b", null, toDisplayString(unref(state).collections.products.length) + " 商品 · " + toDisplayString(unref(state).collections.orders.length) + " 订单", 1)
             ]),
-            unref(state).storageErrors.length ? (openBlock(), createElementBlock("div", _hoisted_171, "降级原因：" + toDisplayString(unref(state).storageErrors.join(" / ")), 1)) : createCommentVNode("", true),
-            createBaseVNode("div", _hoisted_172, [
+            unref(state).storageErrors.length ? (openBlock(), createElementBlock("div", _hoisted_169, "降级原因：" + toDisplayString(unref(state).storageErrors.join(" / ")), 1)) : createCommentVNode("", true),
+            createBaseVNode("div", _hoisted_170, [
               createBaseVNode("button", {
                 class: "chip",
                 onClick: loadUsage
@@ -33956,7 +34446,7 @@ const _sfc_main$1 = {
               class: "mini-head",
               style: { "margin-top": "18px" }
             }, "功能与图片", -1)),
-            createBaseVNode("div", _hoisted_173, [
+            createBaseVNode("div", _hoisted_171, [
               _cache[115] || (_cache[115] = createBaseVNode("span", null, [
                 createTextVNode("扫码下单"),
                 createBaseVNode("small", { class: "kv-sub" }, "开启后才加载识别组件")
@@ -33967,8 +34457,8 @@ const _sfc_main$1 = {
                 "onUpdate:modelValue": _cache[24] || (_cache[24] = (v) => unref(setScanEnabled)(!!v))
               }, null, 8, ["model-value"])
             ]),
-            createBaseVNode("div", _hoisted_174, toDisplayString(unref(scanEnabled) ? "已开启：扫码时才会按需下载 ZXing-WASM；不用时可随时关闭。" : "未开启：不加载任何扫码资源，仍可手动输入条形码。"), 1),
-            createBaseVNode("div", _hoisted_175, [
+            createBaseVNode("div", _hoisted_172, toDisplayString(unref(scanEnabled) ? "已开启：扫码时才会按需下载 ZXing-WASM；不用时可随时关闭。" : "未开启：不加载任何扫码资源，仍可手动输入条形码。"), 1),
+            createBaseVNode("div", _hoisted_173, [
               _cache[116] || (_cache[116] = createBaseVNode("span", null, [
                 createTextVNode("图片上传到图床"),
                 createBaseVNode("small", { class: "kv-sub" }, "本机更省空间")
@@ -33979,18 +34469,18 @@ const _sfc_main$1 = {
                 "onUpdate:modelValue": _cache[25] || (_cache[25] = (v) => unref(setSetting)("imageHost", !!v))
               }, null, 8, ["model-value"])
             ]),
-            unref(state).settings.imageHost && localImgCount.value ? (openBlock(), createElementBlock("div", _hoisted_176, [
+            unref(state).settings.imageHost && localImgCount.value ? (openBlock(), createElementBlock("div", _hoisted_174, [
               createBaseVNode("button", {
                 class: "chip",
                 onClick: migrateImages
               }, "迁移本机旧图（" + toDisplayString(localImgCount.value) + " 张）", 1)
             ])) : createCommentVNode("", true),
-            createBaseVNode("div", _hoisted_177, toDisplayString(unref(state).settings.imageHost ? "已开启：商品图/头像传到 esaimg.cdn1.vip，本机只存链接（导出包更小）；上传失败会自动回退存本机。" : "未开启：图片压缩后存本机 IndexedDB，不经过第三方；商品多时占空间较快。"), 1),
+            createBaseVNode("div", _hoisted_175, toDisplayString(unref(state).settings.imageHost ? "已开启：商品图/头像传到 esaimg.cdn1.vip，本机只存链接（导出包更小）；上传失败会自动回退存本机。" : "未开启：图片压缩后存本机 IndexedDB，不经过第三方；商品多时占空间较快。"), 1),
             _cache[119] || (_cache[119] = createBaseVNode("div", {
               class: "mini-head",
               style: { "margin-top": "14px" }
             }, "示例数据", -1)),
-            createBaseVNode("div", _hoisted_178, [
+            createBaseVNode("div", _hoisted_176, [
               unref(allow)("store:write") ? (openBlock(), createElementBlock("button", {
                 key: 0,
                 class: "chip danger",
@@ -34012,9 +34502,9 @@ const _sfc_main$1 = {
                 class: normalizeClass(["log-row", { linkable: logClickable(l) }]),
                 onClick: ($event) => openLogRow(l)
               }, [
-                createBaseVNode("span", _hoisted_180, toDisplayString(unref(fmtTime)(l.at)), 1),
-                createBaseVNode("span", _hoisted_181, toDisplayString(typeText(l.type)), 1),
-                createBaseVNode("span", _hoisted_182, [
+                createBaseVNode("span", _hoisted_178, toDisplayString(unref(fmtTime)(l.at)), 1),
+                createBaseVNode("span", _hoisted_179, toDisplayString(typeText(l.type)), 1),
+                createBaseVNode("span", _hoisted_180, [
                   createTextVNode(toDisplayString(l.text), 1),
                   logClickable(l) ? (openBlock(), createBlock(_sfc_main$p, {
                     key: 0,
@@ -34022,7 +34512,7 @@ const _sfc_main$1 = {
                     size: 12,
                     class: "log-go"
                   })) : createCommentVNode("", true),
-                  createBaseVNode("em", _hoisted_183, [
+                  createBaseVNode("em", _hoisted_181, [
                     createTextVNode(toDisplayString(l.operatorName || "我"), 1),
                     logWhere(l) ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [
                       createTextVNode(" · " + toDisplayString(logWhere(l)), 1)
@@ -34032,9 +34522,9 @@ const _sfc_main$1 = {
                     ], 64)) : createCommentVNode("", true)
                   ])
                 ])
-              ], 10, _hoisted_179);
+              ], 10, _hoisted_177);
             }), 128)),
-            !recentLogs.value.length ? (openBlock(), createElementBlock("div", _hoisted_184, "还没有记录。开单、改库存、调拨、建店都会自动留一条。")) : createCommentVNode("", true),
+            !recentLogs.value.length ? (openBlock(), createElementBlock("div", _hoisted_182, "还没有记录。开单、改库存、调拨、建店都会自动留一条。")) : createCommentVNode("", true),
             createBaseVNode("button", {
               class: "chip",
               style: { "margin-top": "10px" },
@@ -34046,20 +34536,20 @@ const _sfc_main$1 = {
           createBaseVNode("b", null, "帮助"),
           createBaseVNode("span", null, "使用说明与数据口径")
         ], -1)),
-        createBaseVNode("div", _hoisted_185, [
+        createBaseVNode("div", _hoisted_183, [
           createBaseVNode("button", {
             class: "menu-row",
             style: { "width": "100%" },
             onClick: _cache[26] || (_cache[26] = ($event) => helpOpen.value = true)
           }, [
-            createBaseVNode("span", _hoisted_186, [
+            createBaseVNode("span", _hoisted_184, [
               createVNode(_sfc_main$p, {
                 name: "list",
                 size: 17
               }),
               _cache[121] || (_cache[121] = createBaseVNode("b", null, "功能使用说明", -1))
             ]),
-            createBaseVNode("span", _hoisted_187, [
+            createBaseVNode("span", _hoisted_185, [
               _cache[122] || (_cache[122] = createBaseVNode("span", null, "开单 / 库存 / 代理 / 导出", -1)),
               createVNode(_sfc_main$p, {
                 class: "chev",
@@ -34076,14 +34566,14 @@ const _sfc_main$1 = {
             class: "fold-head",
             onClick: _cache[27] || (_cache[27] = ($event) => toggle("help"))
           }, [
-            createBaseVNode("span", _hoisted_188, [
+            createBaseVNode("span", _hoisted_186, [
               createVNode(_sfc_main$p, {
                 name: "alert",
                 size: 17
               }),
               _cache[123] || (_cache[123] = createBaseVNode("b", null, "规则说明", -1))
             ]),
-            createBaseVNode("span", _hoisted_189, [
+            createBaseVNode("span", _hoisted_187, [
               _cache[124] || (_cache[124] = createBaseVNode("span", null, "数据口径 / 三种包 / 权限", -1)),
               createVNode(_sfc_main$p, {
                 class: "chev",
@@ -34092,17 +34582,17 @@ const _sfc_main$1 = {
               })
             ])
           ]),
-          sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_190, [..._cache[125] || (_cache[125] = [
-            createStaticVNode('<p class="hint" style="line-height:2;" data-v-dfbb9b08> · 数据默认存 IndexedDB（库 <span class="mono" data-v-dfbb9b08>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-dfbb9b08> · <b data-v-dfbb9b08>同步包 ≠ 整机备份</b>：<br data-v-dfbb9b08> 　– <b data-v-dfbb9b08>同步包</b>（.json + sync 标记）：导入是<b data-v-dfbb9b08>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-dfbb9b08> 　– <b data-v-dfbb9b08>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-dfbb9b08> 　– 一句话记：<b data-v-dfbb9b08>同步 = 覆盖成一模一样</b>，<b data-v-dfbb9b08>店铺包 = 按店更新合并</b>。<br data-v-dfbb9b08> · 三种数据包，互不混淆：<b data-v-dfbb9b08>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-dfbb9b08>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-dfbb9b08>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-dfbb9b08> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-dfbb9b08>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-dfbb9b08> · <b data-v-dfbb9b08>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-dfbb9b08> · 「共管」店铺可以随时<b data-v-dfbb9b08>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-dfbb9b08> · 代理端是本站的 <span class="mono" data-v-dfbb9b08>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-dfbb9b08> · <b data-v-dfbb9b08>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-dfbb9b08> · <b data-v-dfbb9b08>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-dfbb9b08> · <b data-v-dfbb9b08>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-dfbb9b08> · <b data-v-dfbb9b08>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-dfbb9b08> · <b data-v-dfbb9b08>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-dfbb9b08> · <b data-v-dfbb9b08>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-dfbb9b08> · <b data-v-dfbb9b08>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-dfbb9b08> · 店铺带两种「不是自己建的」标记：<b data-v-dfbb9b08>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-dfbb9b08>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-dfbb9b08> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-dfbb9b08> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
+          sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_188, [..._cache[125] || (_cache[125] = [
+            createStaticVNode('<p class="hint" style="line-height:2;" data-v-f9e1e593> · 数据默认存 IndexedDB（库 <span class="mono" data-v-f9e1e593>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-f9e1e593> · <b data-v-f9e1e593>同步包 ≠ 整机备份</b>：<br data-v-f9e1e593> 　– <b data-v-f9e1e593>同步包</b>（.json + sync 标记）：导入是<b data-v-f9e1e593>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-f9e1e593> 　– <b data-v-f9e1e593>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-f9e1e593> 　– 一句话记：<b data-v-f9e1e593>同步 = 覆盖成一模一样</b>，<b data-v-f9e1e593>店铺包 = 按店更新合并</b>。<br data-v-f9e1e593> · 三种数据包，互不混淆：<b data-v-f9e1e593>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-f9e1e593>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-f9e1e593>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-f9e1e593> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-f9e1e593>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-f9e1e593> · <b data-v-f9e1e593>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-f9e1e593> · 「共管」店铺可以随时<b data-v-f9e1e593>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-f9e1e593> · 代理端是本站的 <span class="mono" data-v-f9e1e593>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-f9e1e593> · <b data-v-f9e1e593>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-f9e1e593> · <b data-v-f9e1e593>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-f9e1e593> · <b data-v-f9e1e593>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-f9e1e593> · <b data-v-f9e1e593>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-f9e1e593> · <b data-v-f9e1e593>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-f9e1e593> · <b data-v-f9e1e593>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-f9e1e593> · <b data-v-f9e1e593>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-f9e1e593> · 店铺带两种「不是自己建的」标记：<b data-v-f9e1e593>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-f9e1e593>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-f9e1e593> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-f9e1e593> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
           ])])) : createCommentVNode("", true)
         ], 2),
-        createBaseVNode("div", _hoisted_191, [
+        createBaseVNode("div", _hoisted_189, [
           createVNode(BrandMark, {
             size: 30,
             word: "",
             tagline: "八收三扣，盈利有数"
           }),
-          _cache[126] || (_cache[126] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.11.48", -1))
+          _cache[126] || (_cache[126] = createBaseVNode("span", { class: "brand-site mono" }, "8-3.de5.net · v3.11.50", -1))
         ]),
         createVNode(_component_var_popup, {
           show: logOpen.value,
@@ -34110,11 +34600,11 @@ const _sfc_main$1 = {
           "onUpdate:show": _cache[29] || (_cache[29] = (v) => logOpen.value = v)
         }, {
           default: withCtx(() => [
-            createBaseVNode("div", _hoisted_192, [
-              createBaseVNode("header", _hoisted_193, [
+            createBaseVNode("div", _hoisted_190, [
+              createBaseVNode("header", _hoisted_191, [
                 createBaseVNode("div", null, [
                   createBaseVNode("b", null, "全部操作日志 · " + toDisplayString(store.value ? store.value.name : ""), 1),
-                  createBaseVNode("div", _hoisted_194, "本店日志（含代理/共管在他店的操作）· 共 " + toDisplayString(scopedLogs.value.length) + " 条，全量保留、随同步包一起流转", 1)
+                  createBaseVNode("div", _hoisted_192, "本店日志（含代理/共管在他店的操作）· 共 " + toDisplayString(scopedLogs.value.length) + " 条，全量保留、随同步包一起流转", 1)
                 ]),
                 createBaseVNode("button", {
                   class: "icon-btn",
@@ -34129,16 +34619,16 @@ const _sfc_main$1 = {
                   })
                 ])
               ]),
-              createBaseVNode("div", _hoisted_195, [
+              createBaseVNode("div", _hoisted_193, [
                 (openBlock(true), createElementBlock(Fragment, null, renderList(shownLogs.value, (l) => {
                   return openBlock(), createElementBlock("div", {
                     key: l.id,
                     class: normalizeClass(["log-row", { linkable: logClickable(l) }]),
                     onClick: ($event) => openLogRow(l)
                   }, [
-                    createBaseVNode("span", _hoisted_197, toDisplayString(unref(fmtTime)(l.at)), 1),
-                    createBaseVNode("span", _hoisted_198, toDisplayString(typeText(l.type)), 1),
-                    createBaseVNode("span", _hoisted_199, [
+                    createBaseVNode("span", _hoisted_195, toDisplayString(unref(fmtTime)(l.at)), 1),
+                    createBaseVNode("span", _hoisted_196, toDisplayString(typeText(l.type)), 1),
+                    createBaseVNode("span", _hoisted_197, [
                       createTextVNode(toDisplayString(l.text), 1),
                       logClickable(l) ? (openBlock(), createBlock(_sfc_main$p, {
                         key: 0,
@@ -34146,7 +34636,7 @@ const _sfc_main$1 = {
                         size: 12,
                         class: "log-go"
                       })) : createCommentVNode("", true),
-                      createBaseVNode("em", _hoisted_200, [
+                      createBaseVNode("em", _hoisted_198, [
                         createTextVNode(toDisplayString(l.operatorName || "我"), 1),
                         logWhere(l) ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [
                           createTextVNode(" · " + toDisplayString(logWhere(l)), 1)
@@ -34156,9 +34646,9 @@ const _sfc_main$1 = {
                         ], 64)) : createCommentVNode("", true)
                       ])
                     ])
-                  ], 10, _hoisted_196);
+                  ], 10, _hoisted_194);
                 }), 128)),
-                !scopedLogs.value.length ? (openBlock(), createElementBlock("div", _hoisted_201, [..._cache[127] || (_cache[127] = [
+                !scopedLogs.value.length ? (openBlock(), createElementBlock("div", _hoisted_199, [..._cache[127] || (_cache[127] = [
                   createBaseVNode("b", null, "这家店还没有日志", -1),
                   createTextVNode("开单、改库存、调拨都会记下来", -1)
                 ])])) : shownLogs.value.length < scopedLogs.value.length ? (openBlock(), createElementBlock("button", {
@@ -34167,7 +34657,7 @@ const _sfc_main$1 = {
                   style: { "margin-top": "12px" },
                   onClick: loadMoreLogs
                 }, [
-                  createBaseVNode("span", _hoisted_202, [
+                  createBaseVNode("span", _hoisted_200, [
                     _cache[128] || (_cache[128] = createTextVNode("还有 ", -1)),
                     createBaseVNode("b", null, toDisplayString(scopedLogs.value.length - shownLogs.value.length), 1),
                     _cache[129] || (_cache[129] = createTextVNode(" 条", -1))
@@ -34194,8 +34684,8 @@ const _sfc_main$1 = {
           "onUpdate:show": _cache[34] || (_cache[34] = (v) => avatarOpen.value = v)
         }, {
           default: withCtx(() => [
-            createBaseVNode("div", _hoisted_203, [
-              createBaseVNode("header", _hoisted_204, [
+            createBaseVNode("div", _hoisted_201, [
+              createBaseVNode("header", _hoisted_202, [
                 _cache[131] || (_cache[131] = createBaseVNode("div", null, [
                   createBaseVNode("b", null, "更换头像"),
                   createBaseVNode("div", { class: "hint" }, "上传的图会压到 128px，不占本机空间")
@@ -34211,21 +34701,21 @@ const _sfc_main$1 = {
                   })
                 ])
               ]),
-              createBaseVNode("div", _hoisted_205, [
-                createBaseVNode("div", _hoisted_206, [
+              createBaseVNode("div", _hoisted_203, [
+                createBaseVNode("div", _hoisted_204, [
                   unref(state).settings.avatar ? (openBlock(), createElementBlock("img", {
                     key: 0,
                     loading: "lazy",
                     decoding: "async",
                     src: unref(state).settings.avatar,
                     alt: "当前头像"
-                  }, null, 8, _hoisted_207)) : (openBlock(), createBlock(_sfc_main$p, {
+                  }, null, 8, _hoisted_205)) : (openBlock(), createBlock(_sfc_main$p, {
                     key: 1,
                     name: "user",
                     size: 30
                   }))
                 ]),
-                createBaseVNode("label", _hoisted_208, [
+                createBaseVNode("label", _hoisted_206, [
                   createBaseVNode("input", {
                     type: "file",
                     accept: "image/*",
@@ -34242,7 +34732,7 @@ const _sfc_main$1 = {
                   class: "field-label",
                   style: { "margin-top": "14px" }
                 }, "或者贴一个图片链接", -1)),
-                createBaseVNode("div", _hoisted_209, [
+                createBaseVNode("div", _hoisted_207, [
                   withDirectives(createBaseVNode("input", {
                     "onUpdate:modelValue": _cache[32] || (_cache[32] = ($event) => avatarUrl.value = $event),
                     class: "inp",
@@ -34276,11 +34766,11 @@ const _sfc_main$1 = {
           "onUpdate:show": _cache[36] || (_cache[36] = (v) => menu.value.show = v)
         }, {
           default: withCtx(() => [
-            createBaseVNode("div", _hoisted_210, [
+            createBaseVNode("div", _hoisted_208, [
               _cache[135] || (_cache[135] = createBaseVNode("div", { class: "drag" }, null, -1)),
-              createBaseVNode("div", _hoisted_211, [
+              createBaseVNode("div", _hoisted_209, [
                 createBaseVNode("b", null, toDisplayString(menu.value.title), 1),
-                createBaseVNode("span", _hoisted_212, toDisplayString(menu.value.sub), 1)
+                createBaseVNode("span", _hoisted_210, toDisplayString(menu.value.sub), 1)
               ]),
               (openBlock(true), createElementBlock(Fragment, null, renderList(menu.value.items, (it, i) => {
                 return openBlock(), createElementBlock("button", {
@@ -34288,7 +34778,7 @@ const _sfc_main$1 = {
                   class: normalizeClass(["menu-row", { danger: it.danger }]),
                   onClick: ($event) => runMenu(it)
                 }, [
-                  createBaseVNode("span", _hoisted_214, [
+                  createBaseVNode("span", _hoisted_212, [
                     createBaseVNode("b", null, toDisplayString(it.label), 1),
                     createBaseVNode("span", null, toDisplayString(it.desc), 1)
                   ]),
@@ -34301,7 +34791,7 @@ const _sfc_main$1 = {
                     name: "chev",
                     size: 14
                   }))
-                ], 10, _hoisted_213);
+                ], 10, _hoisted_211);
               }), 128)),
               createBaseVNode("button", {
                 class: "menu-cancel",
@@ -34325,8 +34815,8 @@ const _sfc_main$1 = {
           "onUpdate:show": _cache[46] || (_cache[46] = (v) => expOpen.value = v)
         }, {
           default: withCtx(() => [
-            createBaseVNode("div", _hoisted_215, [
-              createBaseVNode("header", _hoisted_216, [
+            createBaseVNode("div", _hoisted_213, [
+              createBaseVNode("header", _hoisted_214, [
                 createBaseVNode("b", null, toDisplayString(expEditId.value ? "修改杂费" : "记一笔杂费"), 1),
                 createBaseVNode("button", {
                   class: "icon-btn",
@@ -34339,16 +34829,16 @@ const _sfc_main$1 = {
                   })
                 ])
               ]),
-              createBaseVNode("div", _hoisted_217, [
+              createBaseVNode("div", _hoisted_215, [
                 _cache[137] || (_cache[137] = createBaseVNode("div", { class: "field-label" }, "类型", -1)),
-                createBaseVNode("div", _hoisted_218, [
+                createBaseVNode("div", _hoisted_216, [
                   (openBlock(true), createElementBlock(Fragment, null, renderList(unref(EXPENSE_KINDS), (k) => {
                     return openBlock(), createElementBlock("button", {
                       key: k.key,
                       class: "chip",
                       "data-on": expForm.value.kind === k.key,
                       onClick: ($event) => expForm.value.kind = k.key
-                    }, toDisplayString(k.name), 9, _hoisted_219);
+                    }, toDisplayString(k.name), 9, _hoisted_217);
                   }), 128))
                 ]),
                 withDirectives(createBaseVNode("input", {
@@ -34376,17 +34866,17 @@ const _sfc_main$1 = {
                   class: "field-label",
                   style: { "margin-top": "10px" }
                 }, "怎么算", -1)),
-                createBaseVNode("div", _hoisted_220, [
+                createBaseVNode("div", _hoisted_218, [
                   (openBlock(true), createElementBlock(Fragment, null, renderList(unref(EXPENSE_MODES), (m) => {
                     return openBlock(), createElementBlock("button", {
                       key: m.key,
                       class: "chip",
                       "data-on": expForm.value.mode === m.key,
                       onClick: ($event) => expForm.value.mode = m.key
-                    }, toDisplayString(m.name), 9, _hoisted_221);
+                    }, toDisplayString(m.name), 9, _hoisted_219);
                   }), 128))
                 ]),
-                createBaseVNode("div", _hoisted_222, [
+                createBaseVNode("div", _hoisted_220, [
                   createBaseVNode("label", null, [
                     createBaseVNode("span", null, toDisplayString(expForm.value.mode === "once" ? "发生日期" : "开始"), 1),
                     withDirectives(createBaseVNode("input", {
@@ -34397,7 +34887,7 @@ const _sfc_main$1 = {
                       [vModelText, expForm.value.from]
                     ])
                   ]),
-                  expForm.value.mode !== "once" ? (openBlock(), createElementBlock("label", _hoisted_223, [
+                  expForm.value.mode !== "once" ? (openBlock(), createElementBlock("label", _hoisted_221, [
                     _cache[136] || (_cache[136] = createBaseVNode("span", null, "结束", -1)),
                     withDirectives(createBaseVNode("input", {
                       class: "inp",
@@ -34417,9 +34907,9 @@ const _sfc_main$1 = {
                 }, null, 512), [
                   [vModelText, expForm.value.note]
                 ]),
-                createBaseVNode("div", _hoisted_224, toDisplayString(expHint.value), 1)
+                createBaseVNode("div", _hoisted_222, toDisplayString(expHint.value), 1)
               ]),
-              createBaseVNode("footer", _hoisted_225, [
+              createBaseVNode("footer", _hoisted_223, [
                 createBaseVNode("button", {
                   class: "btn ghost",
                   onClick: _cache[45] || (_cache[45] = ($event) => expOpen.value = false)
@@ -34433,19 +34923,19 @@ const _sfc_main$1 = {
           ]),
           _: 1
         }, 8, ["show"]),
-        rebuild.value.on ? (openBlock(), createElementBlock("div", _hoisted_226, [
-          createBaseVNode("div", _hoisted_227, [
-            createBaseVNode("div", _hoisted_228, [
+        rebuild.value.on ? (openBlock(), createElementBlock("div", _hoisted_224, [
+          createBaseVNode("div", _hoisted_225, [
+            createBaseVNode("div", _hoisted_226, [
               createVNode(BrandLoading, { size: 50 })
             ]),
-            createBaseVNode("div", _hoisted_229, toDisplayString(rebuild.value.title), 1),
-            createBaseVNode("div", _hoisted_230, toDisplayString(rebuild.value.text), 1),
-            createBaseVNode("div", _hoisted_231, [
+            createBaseVNode("div", _hoisted_227, toDisplayString(rebuild.value.title), 1),
+            createBaseVNode("div", _hoisted_228, toDisplayString(rebuild.value.text), 1),
+            createBaseVNode("div", _hoisted_229, [
               createBaseVNode("i", {
                 style: normalizeStyle({ width: rebuild.value.pct + "%" })
               }, null, 4)
             ]),
-            createBaseVNode("div", _hoisted_232, toDisplayString(rebuild.value.mode === "rebuild" ? "完成后页面自动刷新。" : "") + "请不要关闭页面、切到别的标签页或锁屏。", 1)
+            createBaseVNode("div", _hoisted_230, toDisplayString(rebuild.value.mode === "rebuild" ? "完成后页面自动刷新。" : "") + "请不要关闭页面、切到别的标签页或锁屏。", 1)
           ])
         ])) : createCommentVNode("", true),
         createVNode(HelpSheet, {
@@ -34456,7 +34946,7 @@ const _sfc_main$1 = {
     };
   }
 };
-const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-dfbb9b08"]]);
+const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-f9e1e593"]]);
 const errBox = /* @__PURE__ */ reactive({ list: [], count: 0, seen: 0 });
 let installed = false;
 const MAX = 30;
