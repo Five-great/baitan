@@ -15923,7 +15923,12 @@ const activeStore = computed(() => {
   return state.collections.stores.find((s) => s.id === state.meta.activeStoreId) || stores.value[0] || null;
 });
 const role = computed(() => state.viewRole || ROLE.OWNER);
-const isAgent = computed(() => role.value === ROLE.AGENT);
+const isAgent = computed(() => {
+  const st = activeStore.value;
+  if (st && st.asAgent) return true;
+  if (st && !st.asAgent && (st.mine || st.coManaged)) return false;
+  return role.value === ROLE.AGENT;
+});
 const showCost = computed(() => !!state.settings.showCost && !isAgent.value);
 const products = computed(() => {
   const sid = activeStore.value ? activeStore.value.id : "";
@@ -18179,6 +18184,16 @@ async function switchStore(id) {
   emitTempStoreSwitch(state.meta.activeStoreId, id, "store-switch");
   await flush();
   state.meta.activeStoreId = id;
+  const target = state.collections.stores.find((x) => x.id === id);
+  if (target && target.asAgent) {
+    state.viewRole = ROLE.AGENT;
+    state.viewAgentId = target.ownerAgentId || state.viewAgentId || state.meta.agentId || "";
+  } else if (target && (target.mine || target.coManaged)) {
+    state.viewRole = ROLE.OWNER;
+    state.viewAgentId = "";
+  }
+  state.meta.role = state.viewRole;
+  state.meta.agentId = state.viewAgentId;
   state.meta.updatedAt = Date.now();
   touch("meta");
   await flush();
@@ -18405,6 +18420,8 @@ function tempMemberKey(storeId) {
 }
 function currentViewAgent(storeId) {
   if (state.viewRole !== ROLE.AGENT) return null;
+  const target = storeId ? state.collections.stores.find((x) => x.id === storeId) : activeStore.value;
+  if (target && !target.asAgent && (target.mine || target.coManaged)) return null;
   const id = state.viewAgentId || state.meta.agentId;
   if (!id) return null;
   return state.collections.agents.find((a) => a.id === id && (!storeId || a.parentStoreId === storeId)) || null;
@@ -19425,6 +19442,28 @@ function exportStorePack(storeId, opts = {}, extra) {
   if (opts.grant) pack.grant = { ...opts.grant };
   return pack;
 }
+function retargetAgentPack(pack, ownerStoreId) {
+  if (!pack || !pack.store || !ownerStoreId) return pack;
+  const from = String(pack.store.id || "");
+  if (!from || from === ownerStoreId) return pack;
+  const c = pack.collections || {};
+  ["orders", "holds", "expenses", "logs"].forEach((k) => {
+    c[k] = (c[k] || []).map((r) => r && r.storeId === from ? { ...r, storeId: ownerStoreId } : r);
+  });
+  ["stocks", "stockOps"].forEach((k) => {
+    c[k] = (c[k] || []).map((r) => r && r.locType === "store" && r.locId === from ? { ...r, locId: ownerStoreId } : r);
+  });
+  c.stores = (c.stores || []).filter((x) => x && x.id !== from);
+  c.agents = (c.agents || []).map((a) => a && a.parentStoreId === from ? { ...a, parentStoreId: ownerStoreId } : a);
+  const keepStore = { ...pack.store, id: ownerStoreId, mine: false, parentStoreId: "" };
+  delete keepStore.name;
+  delete keepStore.warehouseIds;
+  pack.store = keepStore;
+  pack.targetStoreId = ownerStoreId;
+  pack.parentStoreId = "";
+  pack.retargetedFrom = from;
+  return pack;
+}
 function verifyPackCounts(pack) {
   const cnt = pack && pack.counts;
   if (!cnt) return;
@@ -19597,6 +19636,11 @@ async function importStorePack(remote) {
   await ensureAllShardsLoaded();
   const pack = remote && !remote.collections && remote.seed ? { kind: "agent", collections: remote.seed.collections, meta: remote.seed.meta, agent: remote.agent, settings: remote.seed.settings } : remote;
   if (!pack || !pack.collections) throw new Error("这不是本程序导出的店铺数据包");
+  if ((pack.storeRole === "agent" || pack.storeRole === "shared") && pack.audience === "owner" && pack.store) {
+    const parent = String(pack.parentStoreId || pack.store.parentStoreId || "");
+    const ownerStore = parent ? state.collections.stores.find((x) => x.id === parent && (x.mine || x.coManaged)) : null;
+    if (ownerStore && ownerStore.id !== pack.store.id) pack = retargetAgentPack(pack, ownerStore.id);
+  }
   verifyPackCounts(pack);
   dataLog("导入店铺包", { kind: pack.kind, storeId: pack.store && pack.store.id, targetStoreId: pack.targetStoreId, role: pack.meta && pack.meta.role, initial: !!pack.initial });
   if (pack.initial && pack.validUntil && Date.now() > pack.validUntil) {
@@ -30385,30 +30429,11 @@ function packTargetsStore(info, storeId) {
   if (!info.targetStoreId) return true;
   if (info.targetStoreId === storeId) return true;
   if (info.parentStoreId && info.parentStoreId === storeId) return true;
+  if ((info.storeRole === "agent" || info.storeRole === "shared") && info.audience === "owner") return true;
   return false;
 }
 function retargetPackForStore(pack, storeId) {
-  if (!pack || !pack.store || !storeId) return pack;
-  const from = String(pack.store.id || "");
-  const parent = String(pack.parentStoreId || pack.store.parentStoreId || "");
-  if (!from || from === storeId) return pack;
-  if (parent && parent !== storeId) return pack;
-  const sid = ["orders", "holds", "expenses", "logs"];
-  const c = pack.collections || {};
-  sid.forEach((k) => {
-    c[k] = (c[k] || []).map((r) => r && r.storeId === from ? { ...r, storeId } : r);
-  });
-  const loc = ["stocks", "stockOps"];
-  loc.forEach((k) => {
-    c[k] = (c[k] || []).map((r) => r && r.locType === "store" && r.locId === from ? { ...r, locId: storeId } : r);
-  });
-  c.stores = (c.stores || []).filter((x) => x && x.id !== from);
-  c.agents = (c.agents || []).map((a) => a && a.parentStoreId === from ? { ...a, parentStoreId: storeId } : a);
-  pack.store = { ...pack.store, id: storeId, mine: false, parentStoreId: "" };
-  pack.targetStoreId = storeId;
-  pack.parentStoreId = "";
-  pack.retargetedFrom = from;
-  return pack;
+  return retargetAgentPack(pack, storeId);
 }
 async function uploadCurrent(cfg, store, signal) {
   const rev = dataRev();
@@ -30471,6 +30496,8 @@ async function pullOthers(cfg, store, signal) {
   let merged = 0;
   let pending2 = 0;
   let skippedTarget2 = 0;
+  let mainCopies2 = 0;
+  let memberPacks2 = 0;
   let blocked = false;
   const selfCode = tempMemberCode(store.id);
   const ownerView = isOwnerView(store);
@@ -30482,10 +30509,12 @@ async function pullOthers(cfg, store, signal) {
   } catch (e) {
   }
   if (remote.blocked) blocked = true;
+  mainCopies2 = (remote.copies || []).length;
   const main = mergeMainCopies(remote.copies);
   if (main && main.members) {
     for (const [code, mem] of Object.entries(main.members)) {
       if (code === selfCode || !mem || !mem.pack) continue;
+      memberPacks2++;
       if (ownerOnly && code !== OWNER_CODE) continue;
       const p2 = mem.pack;
       if (!p2.downloadUrl) continue;
@@ -30570,7 +30599,7 @@ async function pullOthers(cfg, store, signal) {
     await syncLedgerIfDue(cfg, store.id);
   }
   saveFolder(store.id, cfg);
-  return { merged, pending: pending2, blocked, skippedTarget: skippedTarget2 };
+  return { merged, pending: pending2, blocked, skippedTarget: skippedTarget2, mainCopies: mainCopies2, memberPacks: memberPacks2 };
 }
 function applyRedirect(cfg, red, storeId) {
   const next = {
@@ -30870,8 +30899,9 @@ async function runTempAutoOnce(force = false) {
     if (uploadError) status = "自动上传失败：" + (uploadError.message || "网络错误");
     else if (blocked && pending2) status = "有 " + pending2 + " 个新包待拉取：浏览器限制直读，请点「立即对账」或下载后导入";
     else if (merged) status = "本轮已自动合并 " + merged + " 个包";
-    else if (skippedTarget) status = "读到 " + skippedTarget + " 个包，但不属于这家店（可能是别的店的代理包），已跳过";
-    else status = "已自动检查，没有新包";
+    else if (skippedTarget) status = "主文件 " + mainCopies + " 份、成员包 " + memberPacks + " 个，其中 " + skippedTarget + " 个不属于这家店，已跳过";
+    else if (blocked) status = "读不到云群组主文件（浏览器限制或临时网络问题），下一轮重试";
+    else status = "主文件 " + mainCopies + " 份、成员包 " + memberPacks + " 个，没有需要合并的新包";
     logData("自动同步完成", { storeId: store.id, uploaded, merged, pending: pending2, blocked, status });
     emitAutoStatus({ storeId: store.id, running: false, status, uploaded, merged, pending: pending2, blocked, list: finalList, at: Date.now() });
     statusDone = true;
@@ -36707,7 +36737,7 @@ const _sfc_main$1 = {
             ])
           ]),
           sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_213, [..._cache[137] || (_cache[137] = [
-            createStaticVNode('<p class="hint" style="line-height:2;" data-v-1b5e64f4> · 数据默认存 IndexedDB（库 <span class="mono" data-v-1b5e64f4>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-1b5e64f4> · <b data-v-1b5e64f4>同步包 ≠ 整机备份</b>：<br data-v-1b5e64f4> 　– <b data-v-1b5e64f4>同步包</b>（.json + sync 标记）：导入是<b data-v-1b5e64f4>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-1b5e64f4> 　– <b data-v-1b5e64f4>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-1b5e64f4> 　– 一句话记：<b data-v-1b5e64f4>同步 = 覆盖成一模一样</b>，<b data-v-1b5e64f4>店铺包 = 按店更新合并</b>。<br data-v-1b5e64f4> · 三种数据包，互不混淆：<b data-v-1b5e64f4>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-1b5e64f4>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-1b5e64f4>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-1b5e64f4> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-1b5e64f4>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-1b5e64f4> · <b data-v-1b5e64f4>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-1b5e64f4> · 「共管」店铺可以随时<b data-v-1b5e64f4>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-1b5e64f4> · 代理端是本站的 <span class="mono" data-v-1b5e64f4>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-1b5e64f4> · <b data-v-1b5e64f4>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-1b5e64f4> · <b data-v-1b5e64f4>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-1b5e64f4> · <b data-v-1b5e64f4>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-1b5e64f4> · <b data-v-1b5e64f4>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-1b5e64f4> · <b data-v-1b5e64f4>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-1b5e64f4> · <b data-v-1b5e64f4>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-1b5e64f4> · <b data-v-1b5e64f4>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-1b5e64f4> · 店铺带两种「不是自己建的」标记：<b data-v-1b5e64f4>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-1b5e64f4>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-1b5e64f4> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-1b5e64f4> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
+            createStaticVNode('<p class="hint" style="line-height:2;" data-v-daf8168d> · 数据默认存 IndexedDB（库 <span class="mono" data-v-daf8168d>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-daf8168d> · <b data-v-daf8168d>同步包 ≠ 整机备份</b>：<br data-v-daf8168d> 　– <b data-v-daf8168d>同步包</b>（.json + sync 标记）：导入是<b data-v-daf8168d>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-daf8168d> 　– <b data-v-daf8168d>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-daf8168d> 　– 一句话记：<b data-v-daf8168d>同步 = 覆盖成一模一样</b>，<b data-v-daf8168d>店铺包 = 按店更新合并</b>。<br data-v-daf8168d> · 三种数据包，互不混淆：<b data-v-daf8168d>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-daf8168d>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-daf8168d>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-daf8168d> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-daf8168d>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-daf8168d> · <b data-v-daf8168d>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-daf8168d> · 「共管」店铺可以随时<b data-v-daf8168d>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-daf8168d> · 代理端是本站的 <span class="mono" data-v-daf8168d>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-daf8168d> · <b data-v-daf8168d>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-daf8168d> · <b data-v-daf8168d>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-daf8168d> · <b data-v-daf8168d>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-daf8168d> · <b data-v-daf8168d>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-daf8168d> · <b data-v-daf8168d>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-daf8168d> · <b data-v-daf8168d>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-daf8168d> · <b data-v-daf8168d>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-daf8168d> · 店铺带两种「不是自己建的」标记：<b data-v-daf8168d>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-daf8168d>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-daf8168d> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-daf8168d> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
           ])])) : createCommentVNode("", true)
         ], 2),
         createBaseVNode("div", _hoisted_214, [
@@ -36725,7 +36755,7 @@ const _sfc_main$1 = {
           ]),
           _cache[138] || (_cache[138] = createBaseVNode("span", { class: "brand-site mono" }, [
             createBaseVNode("b", null, "8-3.de5.net"),
-            createBaseVNode("span", null, "v3.11.69")
+            createBaseVNode("span", null, "v3.11.70")
           ], -1))
         ]),
         createVNode(_component_var_popup, {
@@ -37118,7 +37148,7 @@ const _sfc_main$1 = {
     };
   }
 };
-const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-1b5e64f4"]]);
+const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-daf8168d"]]);
 const errBox = /* @__PURE__ */ reactive({ list: [], count: 0, seen: 0 });
 let installed = false;
 const MAX = 30;
