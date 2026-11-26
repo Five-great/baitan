@@ -1,4 +1,4 @@
-import { c as createIndexedDBAdapter, C as COLLECTIONS, R as ROLE, d as defaultMeta, e as defaultSettings, f as currentDbName, n as newId, b as storage, D as DB_NAME, i as initStorage, h as storageErrors, a as addProfile, s as switchProfile, j as dbBreakdown, g as getOrCreateProfile, k as baseDbName, l as setDbOverride, m as dropOtherDbs, U as UNITS, F as FONT_STEPS, T as THEME_COLORS, o as storageUsage } from "./schema-CXbuXp3g.js";
+import { c as createIndexedDBAdapter, C as COLLECTIONS, R as ROLE, d as defaultMeta, e as defaultSettings, n as newId, b as storage, f as currentDbName, D as DB_NAME, i as initStorage, h as storageErrors, a as addProfile, s as switchProfile, j as dbBreakdown, g as getOrCreateProfile, k as baseDbName, l as setDbOverride, m as dropOtherDbs, U as UNITS, F as FONT_STEPS, T as THEME_COLORS, o as storageUsage } from "./schema-CXbuXp3g.js";
 /**
 * @vue/shared v3.5.44
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
@@ -11849,7 +11849,7 @@ const __sfc__$2 = /* @__PURE__ */ defineComponent({
   props: props$2,
   setup(props2) {
     const isFocusing = /* @__PURE__ */ ref(false);
-    const pending = /* @__PURE__ */ ref(false);
+    const pending2 = /* @__PURE__ */ ref(false);
     const { buttonGroup } = useButtonGroup();
     const { hovering, handleHovering } = useHoverOverlay();
     const states = computed(() => {
@@ -11884,24 +11884,24 @@ const __sfc__$2 = /* @__PURE__ */ defineComponent({
     });
     function attemptAutoLoading(result) {
       if (props2.autoLoading) {
-        pending.value = true;
+        pending2.value = true;
         Promise.all(normalizeToArray(result)).then(() => {
-          pending.value = false;
+          pending2.value = false;
         }).catch(() => {
-          pending.value = false;
+          pending2.value = false;
         });
       }
     }
     function handleClick(e) {
       const { loading, disabled, onClick } = props2;
-      if (!onClick || loading || disabled || pending.value) {
+      if (!onClick || loading || disabled || pending2.value) {
         return;
       }
       attemptAutoLoading(call(onClick, e));
     }
     function handleTouchstart(e) {
       const { loading, disabled, onTouchstart } = props2;
-      if (!onTouchstart || loading || disabled || pending.value) {
+      if (!onTouchstart || loading || disabled || pending2.value) {
         return;
       }
       attemptAutoLoading(call(onTouchstart, e));
@@ -11913,7 +11913,7 @@ const __sfc__$2 = /* @__PURE__ */ defineComponent({
       isFocusing.value = true;
     }
     return {
-      pending,
+      pending: pending2,
       states,
       hovering,
       isFocusing,
@@ -13458,7 +13458,7 @@ function installTempConfigConsole() {
 const API_BASE = "https://tempfile.org/api";
 const ORIGIN = "https://tempfile.org";
 const LS_PREFIX = "stall3:tempfile:";
-const TIMEOUT_MS = 2e4;
+const TIMEOUT_MS$1 = 2e4;
 const REQ_LOG_KEY = "stall3:tempfile:reqlog";
 const QUOTA_KEY = "stall3:tempfile:quota";
 const REQ_WINDOW_MS = 60 * 60 * 1e3;
@@ -13571,7 +13571,7 @@ function tempRequestStats() {
 }
 async function tfFetch(url, opts = {}) {
   recordRequest();
-  const { timeoutMs = TIMEOUT_MS, logReason = "", ...fetchOpts } = opts;
+  const { timeoutMs = TIMEOUT_MS$1, logReason = "", ...fetchOpts } = opts;
   const started = Date.now();
   const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timer2 = ctl ? setTimeout(() => ctl.abort(), timeoutMs) : 0;
@@ -18909,8 +18909,8 @@ async function importSyncPack(remote) {
   addLog("sync", "设备同步（全量覆盖）：" + text);
   return text;
 }
-function storeScopeData(storeId) {
-  const c = state.collections;
+function storeScopeData(storeId, extra) {
+  const c = extra ? { ...state.collections, ...extra } : state.collections;
   const store = c.stores.find((s) => s.id === storeId);
   if (!store) return null;
   const whIds = (store.warehouseIds || []).filter((id) => c.warehouses.some((w) => w.id === id));
@@ -18940,8 +18940,8 @@ function storeScopeData(storeId) {
     }
   };
 }
-function exportStorePack(storeId, opts = {}) {
-  const scope = storeScopeData(storeId || activeStore.value && activeStore.value.id);
+function exportStorePack(storeId, opts = {}, extra) {
+  const scope = storeScopeData(storeId || activeStore.value && activeStore.value.id, extra);
   if (!scope) return null;
   const pack = {
     app: "stall-assistant",
@@ -18961,6 +18961,52 @@ function exportStorePack(storeId, opts = {}) {
   };
   if (opts.grant) pack.grant = { ...opts.grant };
   return pack;
+}
+async function shardRowsForStore(storeId) {
+  const maps = {};
+  SHARD_COLLECTIONS.forEach((n2) => {
+    maps[n2] = /* @__PURE__ */ new Map();
+  });
+  for (const n2 of SHARD_COLLECTIONS) {
+    for (const r of state.collections[n2] || []) {
+      const sid = rowStoreOf(r);
+      if (sid && sid !== storeId) continue;
+      const k = rowIdentity(n2, r);
+      if (k) maps[n2].set(k, r);
+    }
+  }
+  let shard = {};
+  try {
+    shard = await readShard(storeId);
+  } catch (e) {
+    console.warn("[shard] 导出前读分片失败", storeId, e);
+  }
+  for (const n2 of SHARD_COLLECTIONS) {
+    for (const r of shard[n2] || []) {
+      const k = rowIdentity(n2, r);
+      if (k && !maps[n2].has(k)) maps[n2].set(k, r);
+    }
+  }
+  const out = {};
+  SHARD_COLLECTIONS.forEach((n2) => {
+    out[n2] = Array.from(maps[n2].values());
+  });
+  return out;
+}
+let lastPackMode = "";
+function packLastMode() {
+  return lastPackMode;
+}
+async function exportStorePackReady(storeId, opts = {}) {
+  const sid = storeId || activeStore.value && activeStore.value.id;
+  if (!sid) return null;
+  if (allShardsLoaded || !shardStorageOn()) {
+    lastPackMode = "memory";
+    return exportStorePack(sid, opts);
+  }
+  lastPackMode = "shard:" + sid;
+  const rows = await shardRowsForStore(sid);
+  return exportStorePack(sid, opts, rows);
 }
 function grantAgentShared(agentId) {
   const agent = state.collections.agents.find((a) => a.id === agentId);
@@ -19117,14 +19163,21 @@ async function importStorePack(remote) {
     const opRemap = {};
     const localOps = state.collections.stockOps || [];
     const localOrigin = (o) => o.originId || (o.deviceId || localOwner) + ":" + o.id;
+    const originIndex = /* @__PURE__ */ new Map();
+    const idIndex = /* @__PURE__ */ new Map();
+    for (const x of localOps) {
+      const org = localOrigin(x);
+      if (!originIndex.has(org)) originIndex.set(org, x);
+      if (x.id && !idIndex.has(x.id)) idIndex.set(x.id, x);
+    }
     const ops = (c.stockOps || []).map((o) => {
       if (!o.originId) o.originId = (o.deviceId || packOwner) + ":" + o.id;
-      const twin = localOps.find((x) => localOrigin(x) === o.originId);
+      const twin = originIndex.get(o.originId);
       if (twin) {
         opRemap[o.id] = twin.id;
         return { ...o, id: twin.id };
       }
-      if (localOps.some((x) => x.id === o.id)) {
+      if (idIndex.has(o.id)) {
         const nid = newId("so");
         opRemap[o.id] = nid;
         return { ...o, id: nid };
@@ -19861,7 +19914,7 @@ function setDevMode(on) {
 }
 const consoleRows = /* @__PURE__ */ ref([]);
 const MAX_ROWS = 400;
-let seq = 0;
+let seq$1 = 0;
 function safeText(args) {
   try {
     return args.map((a) => {
@@ -19883,7 +19936,7 @@ function safeText(args) {
 function push(level, text) {
   const t2 = String(text || "");
   const cut = t2.length > 800 ? t2.slice(0, 800) + "…" : t2;
-  consoleRows.value.push({ id: ++seq, at: Date.now(), level, text: cut });
+  consoleRows.value.push({ id: ++seq$1, at: Date.now(), level, text: cut });
   if (consoleRows.value.length > MAX_ROWS) consoleRows.value.splice(0, consoleRows.value.length - MAX_ROWS);
 }
 function clearConsoleRows() {
@@ -21057,10 +21110,10 @@ const _sfc_main$k = {
     const last = /* @__PURE__ */ ref("");
     const snapBusy = /* @__PURE__ */ ref(false);
     const snapHint = /* @__PURE__ */ ref("");
-    const pending = /* @__PURE__ */ ref("");
+    const pending2 = /* @__PURE__ */ ref("");
     const pendingProduct = computed(() => {
-      if (!pending.value) return null;
-      return products.value.find((p2) => barcodeMatch(p2.barcode, pending.value)) || null;
+      if (!pending2.value) return null;
+      return products.value.find((p2) => barcodeMatch(p2.barcode, pending2.value)) || null;
     });
     const { video, active, ready, error: error2, engine, start, stop, captureDecode, torchAvailable, torchOn, toggleTorch } = useScanner();
     function close() {
@@ -21069,7 +21122,7 @@ const _sfc_main$k = {
     async function begin() {
       manual.value = "";
       last.value = "";
-      pending.value = "";
+      pending2.value = "";
       await nextTick();
       await start((code) => handle(code), { continuous: props2.continuous });
     }
@@ -21077,7 +21130,7 @@ const _sfc_main$k = {
       const v = cleanScan(raw);
       if (!v) return;
       if (props2.confirm) {
-        pending.value = v;
+        pending2.value = v;
         last.value = "";
         stop();
         return;
@@ -21092,15 +21145,15 @@ const _sfc_main$k = {
     }
     function confirmPending() {
       if (!pendingProduct.value) return;
-      const v = pending.value;
-      pending.value = "";
+      const v = pending2.value;
+      pending2.value = "";
       last.value = v;
       emit2("scan", v);
       if (props2.continuous) begin();
       else close();
     }
     function rescan() {
-      pending.value = "";
+      pending2.value = "";
       begin();
     }
     async function flipTorch() {
@@ -21159,7 +21212,7 @@ const _sfc_main$k = {
                 playsinline: "",
                 muted: ""
               }, null, 512),
-              unref(torchAvailable) && !pending.value ? (openBlock(), createElementBlock("button", {
+              unref(torchAvailable) && !pending2.value ? (openBlock(), createElementBlock("button", {
                 key: 0,
                 class: "scan-torch",
                 "data-on": unref(torchOn),
@@ -21175,7 +21228,7 @@ const _sfc_main$k = {
               createBaseVNode("div", _hoisted_6$j, [
                 unref(active) ? (openBlock(), createElementBlock("span", _hoisted_7$j)) : createCommentVNode("", true)
               ]),
-              !unref(ready) && !last.value && !pending.value ? (openBlock(), createElementBlock("div", _hoisted_8$j, [
+              !unref(ready) && !last.value && !pending2.value ? (openBlock(), createElementBlock("div", _hoisted_8$j, [
                 createVNode(_sfc_main$s, {
                   name: "search",
                   size: 26
@@ -21188,7 +21241,7 @@ const _sfc_main$k = {
                 }, "重试")) : createCommentVNode("", true)
               ])) : createCommentVNode("", true)
             ]),
-            __props.confirm && pending.value ? (openBlock(), createElementBlock("div", _hoisted_9$j, [
+            __props.confirm && pending2.value ? (openBlock(), createElementBlock("div", _hoisted_9$j, [
               createBaseVNode("div", _hoisted_10$i, [
                 pendingProduct.value ? (openBlock(), createBlock(ProductThumb, {
                   key: 0,
@@ -21197,7 +21250,7 @@ const _sfc_main$k = {
                 }, null, 8, ["product"])) : createCommentVNode("", true),
                 createBaseVNode("div", _hoisted_11$h, [
                   createBaseVNode("b", null, toDisplayString(pendingProduct.value ? pendingProduct.value.name : "商品库里没有这个条码"), 1),
-                  pendingProduct.value ? (openBlock(), createElementBlock("span", _hoisted_12$h, "条码 " + toDisplayString(pending.value) + " · " + toDisplayString(unref(money)(pendingProduct.value.price)) + " / " + toDisplayString(pendingProduct.value.unit), 1)) : (openBlock(), createElementBlock("span", _hoisted_13$h, "条码 " + toDisplayString(pending.value) + " · 先到商品页补上条码，再扫一次", 1))
+                  pendingProduct.value ? (openBlock(), createElementBlock("span", _hoisted_12$h, "条码 " + toDisplayString(pending2.value) + " · " + toDisplayString(unref(money)(pendingProduct.value.price)) + " / " + toDisplayString(pendingProduct.value.unit), 1)) : (openBlock(), createElementBlock("span", _hoisted_13$h, "条码 " + toDisplayString(pending2.value) + " · 先到商品页补上条码，再扫一次", 1))
                 ])
               ]),
               createBaseVNode("div", _hoisted_14$g, [
@@ -21213,7 +21266,7 @@ const _sfc_main$k = {
               ]),
               !pendingProduct.value ? (openBlock(), createElementBlock("p", _hoisted_16$g, "未知条码不会加入订单")) : createCommentVNode("", true)
             ])) : createCommentVNode("", true),
-            unref(ready) && !last.value && !pending.value ? (openBlock(), createElementBlock("div", _hoisted_17$g, [
+            unref(ready) && !last.value && !pending2.value ? (openBlock(), createElementBlock("div", _hoisted_17$g, [
               createBaseVNode("button", {
                 class: "btn ghost",
                 disabled: snapBusy.value,
@@ -21221,11 +21274,11 @@ const _sfc_main$k = {
               }, toDisplayString(snapBusy.value ? "正在识别这张…" : "拍一下识别"), 9, _hoisted_18$g),
               createBaseVNode("span", _hoisted_19$g, toDisplayString(snapHint.value || "一直在转但没结果？对着条码拍一张再解"), 1)
             ])) : createCommentVNode("", true),
-            last.value && !pending.value ? (openBlock(), createElementBlock("p", _hoisted_20$g, [
+            last.value && !pending2.value ? (openBlock(), createElementBlock("p", _hoisted_20$g, [
               createTextVNode("已识别 " + toDisplayString(last.value), 1),
               __props.continuous ? (openBlock(), createElementBlock("span", _hoisted_21$g, " · 确认后已加入本单")) : createCommentVNode("", true)
             ])) : createCommentVNode("", true),
-            __props.continuous && last.value && !pending.value ? (openBlock(), createElementBlock("div", _hoisted_22$f, [
+            __props.continuous && last.value && !pending2.value ? (openBlock(), createElementBlock("div", _hoisted_22$f, [
               _cache[5] || (_cache[5] = createBaseVNode("p", {
                 class: "hint",
                 style: { "text-align": "center", "margin": "0 0 8px" }
@@ -29702,458 +29755,134 @@ const _sfc_main$7 = {
   }
 };
 const StatsView = /* @__PURE__ */ _export_sfc(_sfc_main$7, [["__scopeId", "data-v-c18b5b36"]]);
-function getDefaultExportFromCjs(x) {
-  return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, "default") ? x["default"] : x;
-}
-var lzString = { exports: {} };
-(function(module) {
-  var LZString2 = function() {
-    var f = String.fromCharCode;
-    var keyStrBase64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
-    var keyStrUriSafe = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-$";
-    var baseReverseDic = {};
-    function getBaseValue(alphabet, character) {
-      if (!baseReverseDic[alphabet]) {
-        baseReverseDic[alphabet] = {};
-        for (var i = 0; i < alphabet.length; i++) {
-          baseReverseDic[alphabet][alphabet.charAt(i)] = i;
-        }
-      }
-      return baseReverseDic[alphabet][character];
-    }
-    var LZString3 = {
-      compressToBase64: function(input) {
-        if (input == null) return "";
-        var res = LZString3._compress(input, 6, function(a) {
-          return keyStrBase64.charAt(a);
-        });
-        switch (res.length % 4) {
-          default:
-          case 0:
-            return res;
-          case 1:
-            return res + "===";
-          case 2:
-            return res + "==";
-          case 3:
-            return res + "=";
-        }
-      },
-      decompressFromBase64: function(input) {
-        if (input == null) return "";
-        if (input == "") return null;
-        return LZString3._decompress(input.length, 32, function(index) {
-          return getBaseValue(keyStrBase64, input.charAt(index));
-        });
-      },
-      compressToUTF16: function(input) {
-        if (input == null) return "";
-        return LZString3._compress(input, 15, function(a) {
-          return f(a + 32);
-        }) + " ";
-      },
-      decompressFromUTF16: function(compressed) {
-        if (compressed == null) return "";
-        if (compressed == "") return null;
-        return LZString3._decompress(compressed.length, 16384, function(index) {
-          return compressed.charCodeAt(index) - 32;
-        });
-      },
-      //compress into uint8array (UCS-2 big endian format)
-      compressToUint8Array: function(uncompressed) {
-        var compressed = LZString3.compress(uncompressed);
-        var buf = new Uint8Array(compressed.length * 2);
-        for (var i = 0, TotalLen = compressed.length; i < TotalLen; i++) {
-          var current_value = compressed.charCodeAt(i);
-          buf[i * 2] = current_value >>> 8;
-          buf[i * 2 + 1] = current_value % 256;
-        }
-        return buf;
-      },
-      //decompress from uint8array (UCS-2 big endian format)
-      decompressFromUint8Array: function(compressed) {
-        if (compressed === null || compressed === void 0) {
-          return LZString3.decompress(compressed);
-        } else {
-          var buf = new Array(compressed.length / 2);
-          for (var i = 0, TotalLen = buf.length; i < TotalLen; i++) {
-            buf[i] = compressed[i * 2] * 256 + compressed[i * 2 + 1];
-          }
-          var result = [];
-          buf.forEach(function(c) {
-            result.push(f(c));
-          });
-          return LZString3.decompress(result.join(""));
-        }
-      },
-      //compress into a string that is already URI encoded
-      compressToEncodedURIComponent: function(input) {
-        if (input == null) return "";
-        return LZString3._compress(input, 6, function(a) {
-          return keyStrUriSafe.charAt(a);
-        });
-      },
-      //decompress from an output of compressToEncodedURIComponent
-      decompressFromEncodedURIComponent: function(input) {
-        if (input == null) return "";
-        if (input == "") return null;
-        input = input.replace(/ /g, "+");
-        return LZString3._decompress(input.length, 32, function(index) {
-          return getBaseValue(keyStrUriSafe, input.charAt(index));
-        });
-      },
-      compress: function(uncompressed) {
-        return LZString3._compress(uncompressed, 16, function(a) {
-          return f(a);
-        });
-      },
-      _compress: function(uncompressed, bitsPerChar, getCharFromInt) {
-        if (uncompressed == null) return "";
-        var i, value, context_dictionary = {}, context_dictionaryToCreate = {}, context_c = "", context_wc = "", context_w = "", context_enlargeIn = 2, context_dictSize = 3, context_numBits = 2, context_data = [], context_data_val = 0, context_data_position = 0, ii;
-        for (ii = 0; ii < uncompressed.length; ii += 1) {
-          context_c = uncompressed.charAt(ii);
-          if (!Object.prototype.hasOwnProperty.call(context_dictionary, context_c)) {
-            context_dictionary[context_c] = context_dictSize++;
-            context_dictionaryToCreate[context_c] = true;
-          }
-          context_wc = context_w + context_c;
-          if (Object.prototype.hasOwnProperty.call(context_dictionary, context_wc)) {
-            context_w = context_wc;
-          } else {
-            if (Object.prototype.hasOwnProperty.call(context_dictionaryToCreate, context_w)) {
-              if (context_w.charCodeAt(0) < 256) {
-                for (i = 0; i < context_numBits; i++) {
-                  context_data_val = context_data_val << 1;
-                  if (context_data_position == bitsPerChar - 1) {
-                    context_data_position = 0;
-                    context_data.push(getCharFromInt(context_data_val));
-                    context_data_val = 0;
-                  } else {
-                    context_data_position++;
-                  }
-                }
-                value = context_w.charCodeAt(0);
-                for (i = 0; i < 8; i++) {
-                  context_data_val = context_data_val << 1 | value & 1;
-                  if (context_data_position == bitsPerChar - 1) {
-                    context_data_position = 0;
-                    context_data.push(getCharFromInt(context_data_val));
-                    context_data_val = 0;
-                  } else {
-                    context_data_position++;
-                  }
-                  value = value >> 1;
-                }
-              } else {
-                value = 1;
-                for (i = 0; i < context_numBits; i++) {
-                  context_data_val = context_data_val << 1 | value;
-                  if (context_data_position == bitsPerChar - 1) {
-                    context_data_position = 0;
-                    context_data.push(getCharFromInt(context_data_val));
-                    context_data_val = 0;
-                  } else {
-                    context_data_position++;
-                  }
-                  value = 0;
-                }
-                value = context_w.charCodeAt(0);
-                for (i = 0; i < 16; i++) {
-                  context_data_val = context_data_val << 1 | value & 1;
-                  if (context_data_position == bitsPerChar - 1) {
-                    context_data_position = 0;
-                    context_data.push(getCharFromInt(context_data_val));
-                    context_data_val = 0;
-                  } else {
-                    context_data_position++;
-                  }
-                  value = value >> 1;
-                }
-              }
-              context_enlargeIn--;
-              if (context_enlargeIn == 0) {
-                context_enlargeIn = Math.pow(2, context_numBits);
-                context_numBits++;
-              }
-              delete context_dictionaryToCreate[context_w];
-            } else {
-              value = context_dictionary[context_w];
-              for (i = 0; i < context_numBits; i++) {
-                context_data_val = context_data_val << 1 | value & 1;
-                if (context_data_position == bitsPerChar - 1) {
-                  context_data_position = 0;
-                  context_data.push(getCharFromInt(context_data_val));
-                  context_data_val = 0;
-                } else {
-                  context_data_position++;
-                }
-                value = value >> 1;
-              }
-            }
-            context_enlargeIn--;
-            if (context_enlargeIn == 0) {
-              context_enlargeIn = Math.pow(2, context_numBits);
-              context_numBits++;
-            }
-            context_dictionary[context_wc] = context_dictSize++;
-            context_w = String(context_c);
-          }
-        }
-        if (context_w !== "") {
-          if (Object.prototype.hasOwnProperty.call(context_dictionaryToCreate, context_w)) {
-            if (context_w.charCodeAt(0) < 256) {
-              for (i = 0; i < context_numBits; i++) {
-                context_data_val = context_data_val << 1;
-                if (context_data_position == bitsPerChar - 1) {
-                  context_data_position = 0;
-                  context_data.push(getCharFromInt(context_data_val));
-                  context_data_val = 0;
-                } else {
-                  context_data_position++;
-                }
-              }
-              value = context_w.charCodeAt(0);
-              for (i = 0; i < 8; i++) {
-                context_data_val = context_data_val << 1 | value & 1;
-                if (context_data_position == bitsPerChar - 1) {
-                  context_data_position = 0;
-                  context_data.push(getCharFromInt(context_data_val));
-                  context_data_val = 0;
-                } else {
-                  context_data_position++;
-                }
-                value = value >> 1;
-              }
-            } else {
-              value = 1;
-              for (i = 0; i < context_numBits; i++) {
-                context_data_val = context_data_val << 1 | value;
-                if (context_data_position == bitsPerChar - 1) {
-                  context_data_position = 0;
-                  context_data.push(getCharFromInt(context_data_val));
-                  context_data_val = 0;
-                } else {
-                  context_data_position++;
-                }
-                value = 0;
-              }
-              value = context_w.charCodeAt(0);
-              for (i = 0; i < 16; i++) {
-                context_data_val = context_data_val << 1 | value & 1;
-                if (context_data_position == bitsPerChar - 1) {
-                  context_data_position = 0;
-                  context_data.push(getCharFromInt(context_data_val));
-                  context_data_val = 0;
-                } else {
-                  context_data_position++;
-                }
-                value = value >> 1;
-              }
-            }
-            context_enlargeIn--;
-            if (context_enlargeIn == 0) {
-              context_enlargeIn = Math.pow(2, context_numBits);
-              context_numBits++;
-            }
-            delete context_dictionaryToCreate[context_w];
-          } else {
-            value = context_dictionary[context_w];
-            for (i = 0; i < context_numBits; i++) {
-              context_data_val = context_data_val << 1 | value & 1;
-              if (context_data_position == bitsPerChar - 1) {
-                context_data_position = 0;
-                context_data.push(getCharFromInt(context_data_val));
-                context_data_val = 0;
-              } else {
-                context_data_position++;
-              }
-              value = value >> 1;
-            }
-          }
-          context_enlargeIn--;
-          if (context_enlargeIn == 0) {
-            context_enlargeIn = Math.pow(2, context_numBits);
-            context_numBits++;
-          }
-        }
-        value = 2;
-        for (i = 0; i < context_numBits; i++) {
-          context_data_val = context_data_val << 1 | value & 1;
-          if (context_data_position == bitsPerChar - 1) {
-            context_data_position = 0;
-            context_data.push(getCharFromInt(context_data_val));
-            context_data_val = 0;
-          } else {
-            context_data_position++;
-          }
-          value = value >> 1;
-        }
-        while (true) {
-          context_data_val = context_data_val << 1;
-          if (context_data_position == bitsPerChar - 1) {
-            context_data.push(getCharFromInt(context_data_val));
-            break;
-          } else context_data_position++;
-        }
-        return context_data.join("");
-      },
-      decompress: function(compressed) {
-        if (compressed == null) return "";
-        if (compressed == "") return null;
-        return LZString3._decompress(compressed.length, 32768, function(index) {
-          return compressed.charCodeAt(index);
-        });
-      },
-      _decompress: function(length, resetValue, getNextValue) {
-        var dictionary = [], enlargeIn = 4, dictSize = 4, numBits = 3, entry = "", result = [], i, w, bits, resb, maxpower, power, c, data = { val: getNextValue(0), position: resetValue, index: 1 };
-        for (i = 0; i < 3; i += 1) {
-          dictionary[i] = i;
-        }
-        bits = 0;
-        maxpower = Math.pow(2, 2);
-        power = 1;
-        while (power != maxpower) {
-          resb = data.val & data.position;
-          data.position >>= 1;
-          if (data.position == 0) {
-            data.position = resetValue;
-            data.val = getNextValue(data.index++);
-          }
-          bits |= (resb > 0 ? 1 : 0) * power;
-          power <<= 1;
-        }
-        switch (bits) {
-          case 0:
-            bits = 0;
-            maxpower = Math.pow(2, 8);
-            power = 1;
-            while (power != maxpower) {
-              resb = data.val & data.position;
-              data.position >>= 1;
-              if (data.position == 0) {
-                data.position = resetValue;
-                data.val = getNextValue(data.index++);
-              }
-              bits |= (resb > 0 ? 1 : 0) * power;
-              power <<= 1;
-            }
-            c = f(bits);
-            break;
-          case 1:
-            bits = 0;
-            maxpower = Math.pow(2, 16);
-            power = 1;
-            while (power != maxpower) {
-              resb = data.val & data.position;
-              data.position >>= 1;
-              if (data.position == 0) {
-                data.position = resetValue;
-                data.val = getNextValue(data.index++);
-              }
-              bits |= (resb > 0 ? 1 : 0) * power;
-              power <<= 1;
-            }
-            c = f(bits);
-            break;
-          case 2:
-            return "";
-        }
-        dictionary[3] = c;
-        w = c;
-        result.push(c);
-        while (true) {
-          if (data.index > length) {
-            return "";
-          }
-          bits = 0;
-          maxpower = Math.pow(2, numBits);
-          power = 1;
-          while (power != maxpower) {
-            resb = data.val & data.position;
-            data.position >>= 1;
-            if (data.position == 0) {
-              data.position = resetValue;
-              data.val = getNextValue(data.index++);
-            }
-            bits |= (resb > 0 ? 1 : 0) * power;
-            power <<= 1;
-          }
-          switch (c = bits) {
-            case 0:
-              bits = 0;
-              maxpower = Math.pow(2, 8);
-              power = 1;
-              while (power != maxpower) {
-                resb = data.val & data.position;
-                data.position >>= 1;
-                if (data.position == 0) {
-                  data.position = resetValue;
-                  data.val = getNextValue(data.index++);
-                }
-                bits |= (resb > 0 ? 1 : 0) * power;
-                power <<= 1;
-              }
-              dictionary[dictSize++] = f(bits);
-              c = dictSize - 1;
-              enlargeIn--;
-              break;
-            case 1:
-              bits = 0;
-              maxpower = Math.pow(2, 16);
-              power = 1;
-              while (power != maxpower) {
-                resb = data.val & data.position;
-                data.position >>= 1;
-                if (data.position == 0) {
-                  data.position = resetValue;
-                  data.val = getNextValue(data.index++);
-                }
-                bits |= (resb > 0 ? 1 : 0) * power;
-                power <<= 1;
-              }
-              dictionary[dictSize++] = f(bits);
-              c = dictSize - 1;
-              enlargeIn--;
-              break;
-            case 2:
-              return result.join("");
-          }
-          if (enlargeIn == 0) {
-            enlargeIn = Math.pow(2, numBits);
-            numBits++;
-          }
-          if (dictionary[c]) {
-            entry = dictionary[c];
-          } else {
-            if (c === dictSize) {
-              entry = w + w.charAt(0);
-            } else {
-              return null;
-            }
-          }
-          result.push(entry);
-          dictionary[dictSize++] = w + entry.charAt(0);
-          enlargeIn--;
-          w = entry;
-          if (enlargeIn == 0) {
-            enlargeIn = Math.pow(2, numBits);
-            numBits++;
-          }
-        }
-      }
-    };
-    return LZString3;
-  }();
-  if (module != null) {
-    module.exports = LZString2;
-  } else if (typeof angular !== "undefined" && angular != null) {
-    angular.module("LZString", []).factory("LZString", function() {
-      return LZString2;
-    });
+const TIMEOUT_MS = 15e3;
+let worker = null;
+let workerBroken = false;
+let seq = 0;
+const pending = /* @__PURE__ */ new Map();
+let syncLib = null;
+async function syncLibs() {
+  if (!syncLib) {
+    const mod = await __vitePreload(() => import("./lz-string-CyXdMKby.js").then((n2) => n2.l), true ? [] : void 0, import.meta.url);
+    syncLib = mod.default || mod;
   }
-})(lzString);
-var lzStringExports = lzString.exports;
-const LZString = /* @__PURE__ */ getDefaultExportFromCjs(lzStringExports);
+  return syncLib;
+}
+function decodeTextSync(LZString, raw) {
+  let t2 = String(raw || "").replace(/^\uFEFF/, "").trim();
+  if (!t2) throw new Error("内容是空的");
+  if (/^PACK1:/i.test(t2)) {
+    const plain = LZString.decompressFromBase64(t2.slice(6).replace(/\s+/g, ""));
+    if (!plain) throw new Error("压缩包不完整（可能被截断了）");
+    return JSON.parse(plain);
+  }
+  try {
+    return JSON.parse(t2);
+  } catch (e) {
+  }
+  const a = t2.indexOf("{");
+  const b = t2.lastIndexOf("}");
+  if (a >= 0 && b > a) return JSON.parse(t2.slice(a, b + 1));
+  throw new Error("数据包格式不对");
+}
+function killWorker(reason) {
+  workerBroken = true;
+  for (const [, p2] of pending) p2.reject(new Error(reason || "同步线程不可用"));
+  pending.clear();
+  try {
+    if (worker) worker.terminate();
+  } catch (e) {
+  }
+  worker = null;
+}
+function ensureWorker() {
+  if (worker || workerBroken) return worker;
+  if (typeof Worker === "undefined") {
+    workerBroken = true;
+    return null;
+  }
+  try {
+    worker = new Worker(new URL(
+      /* @vite-ignore */
+      "" + new URL("sync-codec.worker-DqXccCZx.js", import.meta.url).href,
+      import.meta.url
+    ), { type: "module" });
+    worker.onmessage = (e) => {
+      const msg = e.data || {};
+      const p2 = pending.get(msg.id);
+      if (!p2) return;
+      pending.delete(msg.id);
+      clearTimeout(p2.timer);
+      if (msg.error) p2.reject(new Error(msg.error));
+      else p2.resolve(msg.result);
+    };
+    worker.onerror = (e) => {
+      killWorker(e && e.message ? e.message : "同步线程加载失败");
+    };
+    worker.onmessageerror = () => killWorker("同步线程消息解析失败");
+  } catch (e) {
+    workerBroken = true;
+    worker = null;
+  }
+  return worker;
+}
+function callWorker(op, payload) {
+  const w = ensureWorker();
+  if (!w) return null;
+  const id = ++seq;
+  return new Promise((resolve2, reject) => {
+    const timer2 = setTimeout(() => {
+      pending.delete(id);
+      killWorker("同步线程超时");
+      reject(new Error("同步线程超时"));
+    }, TIMEOUT_MS);
+    pending.set(id, { resolve: resolve2, reject, timer: timer2 });
+    try {
+      w.postMessage({ id, op, payload });
+    } catch (e) {
+      clearTimeout(timer2);
+      pending.delete(id);
+      killWorker("同步线程发送失败");
+      reject(e);
+    }
+  });
+}
+function codecMode() {
+  if (worker) return "worker";
+  return workerBroken ? "main" : "worker-idle";
+}
+async function encodePack(pack) {
+  const job = callWorker("encode", pack);
+  if (job) {
+    try {
+      return await job;
+    } catch (e) {
+    }
+  }
+  const LZ = await syncLibs();
+  return "PACK1:" + LZ.compressToBase64(JSON.stringify(pack));
+}
+async function decodePack(text) {
+  const job = callWorker("decode", text);
+  if (job) {
+    try {
+      return await job;
+    } catch (e) {
+    }
+  }
+  const LZ = await syncLibs();
+  return decodeTextSync(LZ, text);
+}
+async function stringifyAsync(obj) {
+  const job = callWorker("stringify", obj);
+  if (job) {
+    try {
+      return await job;
+    } catch (e) {
+    }
+  }
+  return JSON.stringify(obj);
+}
 function packTtlMs() {
   return getTempConfig().packExpiryHours * 60 * 60 * 1e3;
 }
@@ -30253,23 +29982,13 @@ function waitIdle() {
   });
 }
 function packToText(pack) {
-  return "PACK1:" + LZString.compressToBase64(JSON.stringify(pack));
+  return encodePack(pack);
 }
 function parsePack(raw) {
-  let t2 = String(raw || "").replace(/^\uFEFF/, "").trim();
-  if (!t2) throw new Error("内容是空的");
-  if (/^PACK1:/i.test(t2)) {
-    const plain = LZString.decompressFromBase64(t2.slice(6).replace(/\s+/g, ""));
-    if (!plain) throw new Error("压缩包不完整");
-    return JSON.parse(plain);
-  }
-  try {
-    return JSON.parse(t2);
-  } catch (e) {
-  }
-  const a = t2.indexOf("{"), b = t2.lastIndexOf("}");
-  if (a >= 0 && b > a) return JSON.parse(t2.slice(a, b + 1));
-  throw new Error("数据包格式不对");
+  return decodePack(raw);
+}
+function uiYield() {
+  return new Promise((resolve2) => setTimeout(resolve2, 0));
 }
 function isOwnFile(cfg, f) {
   if (!cfg || !f) return false;
@@ -30351,7 +30070,7 @@ async function uploadCurrent(cfg, store, signal) {
   assertActive(signal, store.id);
   await waitIdle();
   assertActive(signal, store.id);
-  const pack = exportStorePack(store.id);
+  const pack = await exportStorePackReady(store.id);
   if (!pack) {
     logData("上传跳过", { storeId: store.id, reason: "exportStorePack 返回空" });
     return false;
@@ -30371,7 +30090,7 @@ async function uploadCurrent(cfg, store, signal) {
   pack.audience = role2 === "owner" ? "all" : "owner";
   const prefix = role2 === "owner" ? "83-store-" : "83-store-full-";
   const name2 = prefix + store.id + "-" + code + "-" + (state.meta.deviceId || "dev") + "-" + stamp() + ".json";
-  const file = new File([packToText(pack)], name2, { type: "application/json" });
+  const file = new File([await packToText(pack)], name2, { type: "application/json" });
   assertActive(signal, store.id);
   const up = await uploadStandaloneFile(file, { expiryHours: getTempConfig().packExpiryHours });
   assertActive(signal, store.id);
@@ -30401,7 +30120,7 @@ async function uploadCurrent(cfg, store, signal) {
 }
 async function pullOthers(cfg, store, signal) {
   let merged = 0;
-  let pending = 0;
+  let pending2 = 0;
   let blocked = false;
   const selfCode = tempMemberCode(store.id);
   const ownerView = isOwnerView(store);
@@ -30424,7 +30143,7 @@ async function pullOthers(cfg, store, signal) {
       if (!ownerView && p2.audience !== "all") continue;
       if (p2.expiresAt && p2.expiresAt + 60 * 1e3 < Date.now()) continue;
       if (p2.packId && (cfg.mergedPackIds || []).includes(p2.packId)) continue;
-      pending++;
+      pending2++;
       assertActive(signal, store.id);
       let text;
       try {
@@ -30435,7 +30154,7 @@ async function pullOthers(cfg, store, signal) {
       }
       let pack;
       try {
-        pack = parsePack(text);
+        pack = await parsePack(text);
       } catch (e) {
         continue;
       }
@@ -30444,6 +30163,7 @@ async function pullOthers(cfg, store, signal) {
       if (!ownerView && pack.audience !== "all") continue;
       try {
         await importStorePack(pack);
+        await uiYield();
         logData("导入成员包", { from: code, packId: p2.packId, storeId: store.id, audience: p2.audience });
         merged++;
         cfg.mergedPackIds = (cfg.mergedPackIds || []).slice(-80);
@@ -30460,7 +30180,7 @@ async function pullOthers(cfg, store, signal) {
   } catch (e) {
   }
   const legacy = visible(cfg, list);
-  pending += legacy.length;
+  pending2 += legacy.length;
   for (const f of legacy) {
     assertActive(signal, store.id);
     let text;
@@ -30472,7 +30192,7 @@ async function pullOthers(cfg, store, signal) {
     }
     let pack;
     try {
-      pack = parsePack(text);
+      pack = await parsePack(text);
     } catch (e) {
       continue;
     }
@@ -30482,6 +30202,7 @@ async function pullOthers(cfg, store, signal) {
     if (!ownerView && pack.audience === "owner") continue;
     try {
       await importStorePack(pack);
+      await uiYield();
       logData("导入旧包", { file: f.name, fileId: f.id, storeId: store.id });
       merged++;
       cfg.mergedFileIds = (cfg.mergedFileIds || []).slice(-60);
@@ -30494,7 +30215,7 @@ async function pullOthers(cfg, store, signal) {
     await syncLedgerIfDue(cfg, store.id);
   }
   saveFolder(store.id, cfg);
-  return { merged, pending, blocked };
+  return { merged, pending: pending2, blocked };
 }
 function applyRedirect(cfg, red, storeId) {
   const next = {
@@ -30683,7 +30404,7 @@ async function runTempAutoOnce(force = false) {
   saveFolder(store.id, cfg);
   let uploaded = false;
   let merged = 0;
-  let pending = 0;
+  let pending2 = 0;
   let blocked = false;
   let finalList = null;
   let statusDone = false;
@@ -30750,7 +30471,7 @@ async function runTempAutoOnce(force = false) {
       const pulled = await pullOthers(cfg, store, signal);
       merged = pulled.merged;
       blocked = !!pulled.blocked;
-      pending = Number(pulled.pending) || 0;
+      pending2 = Number(pulled.pending) || 0;
     } catch (e) {
       if (e && e.code === "TEMP_ABORTED") throw e;
     }
@@ -30767,14 +30488,14 @@ async function runTempAutoOnce(force = false) {
     saveFolder(store.id, cfg);
     let status;
     if (uploadError) status = "自动上传失败：" + (uploadError.message || "网络错误");
-    else if (blocked && pending) status = "有 " + pending + " 个新包待拉取：浏览器限制直读，请点「手动下拉同步」或下载后导入";
+    else if (blocked && pending2) status = "有 " + pending2 + " 个新包待拉取：浏览器限制直读，请点「手动下拉同步」或下载后导入";
     else if (merged) status = "本轮已自动合并 " + merged + " 个包";
     else if (uploaded) status = "已上传本店最新包，暂没有别人需要合并的新包";
     else status = "已自动检查，没有新包";
-    logData("自动同步完成", { storeId: store.id, uploaded, merged, pending, blocked, status });
-    emitAutoStatus({ storeId: store.id, running: false, status, uploaded, merged, pending, blocked, list: finalList, at: Date.now() });
+    logData("自动同步完成", { storeId: store.id, uploaded, merged, pending: pending2, blocked, status });
+    emitAutoStatus({ storeId: store.id, running: false, status, uploaded, merged, pending: pending2, blocked, list: finalList, at: Date.now() });
     statusDone = true;
-    return { uploaded, merged, pending, blocked };
+    return { uploaded, merged, pending: pending2, blocked };
   } catch (e) {
     if (e && e.code === "TEMP_ABORTED") return { uploaded: false, merged: 0, skipped: true, aborted: true };
     return { uploaded: false, merged: 0, skipped: true };
@@ -33893,7 +33614,7 @@ const _sfc_main$1 = {
       await ensureAllShardsLoaded();
       const pack = await exportBundle();
       const name2 = "83摊盈助手-数据-" + (store.value ? store.value.name : "shop") + "-" + (/* @__PURE__ */ new Date()).toISOString().slice(0, 10) + ".json";
-      if (downloadText(name2, JSON.stringify(pack), "application/json;charset=utf-8")) {
+      if (downloadText(name2, await stringifyAsync(pack), "application/json;charset=utf-8")) {
         hideBusy();
         tip("已导出 .json（" + state.collections.orders.length + " 笔订单，" + (/* @__PURE__ */ new Date()).toISOString().slice(0, 10) + "）");
       } else {
@@ -33907,8 +33628,7 @@ const _sfc_main$1 = {
         return;
       }
       showBusy("正在打包这家店", "店 + 挂载仓库 + 商品/库存/订单/日志…", "spinner");
-      await ensureAllShardsLoaded();
-      const pack = exportStorePack(store.value.id);
+      const pack = await exportStorePackReady(store.value.id);
       if (!pack) {
         hideBusy();
         tip("导出失败：这家店的数据读不出来", "error");
@@ -33917,7 +33637,7 @@ const _sfc_main$1 = {
       const d = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
       const name2 = "店铺-" + store.value.name + "-" + d + ".json";
       const c = pack.collections;
-      if (downloadText(name2, JSON.stringify(pack), "application/json;charset=utf-8")) {
+      if (downloadText(name2, await stringifyAsync(pack), "application/json;charset=utf-8")) {
         hideBusy();
         tip("店铺包已导出：" + c.products.length + " 商品 / " + c.orders.length + " 订单 / " + c.warehouses.length + " 仓库");
       } else {
@@ -33934,7 +33654,7 @@ const _sfc_main$1 = {
       try {
         const text = await f.text();
         busyStep("解析数据包…", 45);
-        const pack = parsePack2(text);
+        const pack = await parsePack2(text);
         const r = await importStorePack(pack);
         report.value = r || "";
         busyStep("完成", 100);
@@ -34441,7 +34161,7 @@ const _sfc_main$1 = {
       pack.audience = role2 === "owner" ? "all" : "owner";
       const prefix = role2 === "owner" ? "83-store-" : "83-store-full-";
       const name2 = prefix + st.id + "-" + code + "-" + (state.meta.deviceId || "dev") + "-" + stamp2() + ".json";
-      const file = new File([packToText(pack)], name2, { type: "application/json" });
+      const file = new File([await packToText(pack)], name2, { type: "application/json" });
       const up = await uploadStandaloneFile(file, { expiryHours: tempCfg.value.packExpiryHours });
       if (!up || !up.id) throw new Error("上传后没有返回文件 id");
       const info = {
@@ -34491,7 +34211,7 @@ const _sfc_main$1 = {
         tip("先建组或接入分组", "error");
         return;
       }
-      const pack = exportStorePack(store.value.id);
+      const pack = await exportStorePackReady(store.value.id);
       if (!pack) {
         tip("这家店导不出店铺包", "error");
         return;
@@ -34554,7 +34274,7 @@ const _sfc_main$1 = {
         }
         let pack;
         try {
-          pack = parsePack2(text);
+          pack = await parsePack2(text);
         } catch (e) {
           skipped++;
           continue;
@@ -34606,7 +34326,7 @@ const _sfc_main$1 = {
         }
         let pack;
         try {
-          pack = parsePack2(text);
+          pack = await parsePack2(text);
         } catch (e) {
           skipped++;
           continue;
@@ -34730,7 +34450,7 @@ const _sfc_main$1 = {
         return;
       }
       try {
-        const pack = parsePack2(text);
+        const pack = await parsePack2(text);
         if (pack.kind === "sync") {
           const answer = await stdin_default$2({
             title: "整包覆盖本机？",
@@ -34765,7 +34485,7 @@ const _sfc_main$1 = {
       if (!f) return;
       showBusy("正在导入临时文件", "读文件并合并…", "spinner");
       try {
-        const pack = parsePack2(await f.text());
+        const pack = await parsePack2(await f.text());
         if (pack.kind === "sync") {
           const answer = await stdin_default$2({
             title: "整包覆盖本机？",
@@ -34876,7 +34596,7 @@ const _sfc_main$1 = {
         applyFolderConfig(next);
         let packError = null;
         try {
-          const pack = exportStorePack(store.value.id);
+          const pack = await exportStorePackReady(store.value.id);
           if (pack) {
             busyStep("上传续期数据包…", 62);
             await uploadCurrentPack(pack, "续期数据包", { writeMain: false });
@@ -34967,7 +34687,7 @@ const _sfc_main$1 = {
       const pack = await exportSyncPack();
       const dev = state.meta.deviceId || "device";
       const name2 = "83摊盈助手-同步-" + dev + "-" + (/* @__PURE__ */ new Date()).toISOString().slice(0, 10) + ".json";
-      if (downloadText(name2, JSON.stringify(pack), "application/json;charset=utf-8")) {
+      if (downloadText(name2, await stringifyAsync(pack), "application/json;charset=utf-8")) {
         hideBusy();
         const c = pack.sync.counts;
         tip("同步包已导出：" + c.products + " 商品 / " + c.orders + " 订单，拿到另一台导入");
@@ -34994,7 +34714,7 @@ const _sfc_main$1 = {
       try {
         const text = await f.text();
         busyStep("解析同步包…", 45);
-        const pack = parsePack2(text);
+        const pack = await parsePack2(text);
         busyStep("整体替换本机数据…", 75);
         const r = await importSyncPack(pack);
         report.value = r || "";
@@ -35015,22 +34735,7 @@ const _sfc_main$1 = {
       return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + pad(d.getHours()) + ":" + pad(d.getMinutes());
     });
     function parsePack2(raw) {
-      let t2 = String(raw || "").replace(/^\uFEFF/, "").trim();
-      if (!t2) throw new Error("内容是空的");
-      if (/^PACK1:/i.test(t2)) {
-        const body = t2.slice(6).replace(/\s+/g, "");
-        const plain = LZString.decompressFromBase64(body);
-        if (!plain) throw new Error("压缩包不完整（可能被截断了），重新导出一次");
-        return JSON.parse(plain);
-      }
-      try {
-        return JSON.parse(t2);
-      } catch (e) {
-      }
-      const a = t2.indexOf("{");
-      const b = t2.lastIndexOf("}");
-      if (a >= 0 && b > a) return JSON.parse(t2.slice(a, b + 1));
-      throw new Error("这不是本程序导出的数据包（找不到 JSON）");
+      return decodePack(raw);
     }
     async function reset() {
       const answer = await stdin_default$2({
@@ -36312,7 +36017,7 @@ const _sfc_main$1 = {
             ])
           ]),
           sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_196, [..._cache[123] || (_cache[123] = [
-            createStaticVNode('<p class="hint" style="line-height:2;" data-v-3cbcdfde> · 数据默认存 IndexedDB（库 <span class="mono" data-v-3cbcdfde>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-3cbcdfde> · <b data-v-3cbcdfde>同步包 ≠ 整机备份</b>：<br data-v-3cbcdfde> 　– <b data-v-3cbcdfde>同步包</b>（.json + sync 标记）：导入是<b data-v-3cbcdfde>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-3cbcdfde> 　– <b data-v-3cbcdfde>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-3cbcdfde> 　– 一句话记：<b data-v-3cbcdfde>同步 = 覆盖成一模一样</b>，<b data-v-3cbcdfde>店铺包 = 按店更新合并</b>。<br data-v-3cbcdfde> · 三种数据包，互不混淆：<b data-v-3cbcdfde>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-3cbcdfde>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-3cbcdfde>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-3cbcdfde> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-3cbcdfde>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-3cbcdfde> · <b data-v-3cbcdfde>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-3cbcdfde> · 「共管」店铺可以随时<b data-v-3cbcdfde>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-3cbcdfde> · 代理端是本站的 <span class="mono" data-v-3cbcdfde>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-3cbcdfde> · <b data-v-3cbcdfde>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-3cbcdfde> · <b data-v-3cbcdfde>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-3cbcdfde> · <b data-v-3cbcdfde>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-3cbcdfde> · <b data-v-3cbcdfde>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-3cbcdfde> · <b data-v-3cbcdfde>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-3cbcdfde> · <b data-v-3cbcdfde>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-3cbcdfde> · <b data-v-3cbcdfde>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-3cbcdfde> · 店铺带两种「不是自己建的」标记：<b data-v-3cbcdfde>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-3cbcdfde>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-3cbcdfde> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-3cbcdfde> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
+            createStaticVNode('<p class="hint" style="line-height:2;" data-v-f6ae27df> · 数据默认存 IndexedDB（库 <span class="mono" data-v-f6ae27df>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-f6ae27df> · <b data-v-f6ae27df>同步包 ≠ 整机备份</b>：<br data-v-f6ae27df> 　– <b data-v-f6ae27df>同步包</b>（.json + sync 标记）：导入是<b data-v-f6ae27df>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-f6ae27df> 　– <b data-v-f6ae27df>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-f6ae27df> 　– 一句话记：<b data-v-f6ae27df>同步 = 覆盖成一模一样</b>，<b data-v-f6ae27df>店铺包 = 按店更新合并</b>。<br data-v-f6ae27df> · 三种数据包，互不混淆：<b data-v-f6ae27df>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-f6ae27df>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-f6ae27df>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-f6ae27df> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-f6ae27df>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-f6ae27df> · <b data-v-f6ae27df>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-f6ae27df> · 「共管」店铺可以随时<b data-v-f6ae27df>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-f6ae27df> · 代理端是本站的 <span class="mono" data-v-f6ae27df>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-f6ae27df> · <b data-v-f6ae27df>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-f6ae27df> · <b data-v-f6ae27df>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-f6ae27df> · <b data-v-f6ae27df>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-f6ae27df> · <b data-v-f6ae27df>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-f6ae27df> · <b data-v-f6ae27df>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-f6ae27df> · <b data-v-f6ae27df>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-f6ae27df> · <b data-v-f6ae27df>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-f6ae27df> · 店铺带两种「不是自己建的」标记：<b data-v-f6ae27df>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-f6ae27df>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-f6ae27df> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-f6ae27df> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
           ])])) : createCommentVNode("", true)
         ], 2),
         createBaseVNode("div", _hoisted_197, [
@@ -36330,7 +36035,7 @@ const _sfc_main$1 = {
           ]),
           _cache[124] || (_cache[124] = createBaseVNode("span", { class: "brand-site mono" }, [
             createBaseVNode("b", null, "8-3.de5.net"),
-            createBaseVNode("span", null, "v3.11.60")
+            createBaseVNode("span", null, "v3.11.62")
           ], -1))
         ]),
         createVNode(_component_var_popup, {
@@ -36689,7 +36394,7 @@ const _sfc_main$1 = {
     };
   }
 };
-const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-3cbcdfde"]]);
+const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-f6ae27df"]]);
 const errBox = /* @__PURE__ */ reactive({ list: [], count: 0, seen: 0 });
 let installed = false;
 const MAX = 30;
@@ -37748,6 +37453,8 @@ app.component("VarSwitch", stdin_default);
 app.component("VarInput", stdin_default$8);
 window.$dialog = stdin_default$2;
 window.$tip = tip;
+window.$codec = { encodePack, decodePack, mode: codecMode };
+window.$pack = { export: exportStorePackReady, import: importStorePack, mode: packLastMode };
 const isAgentEntry = /agent\.html/i.test(location.pathname);
 if (isAgentEntry) app.mount("#app");
 else installSingleTab(() => app.mount("#app"));
