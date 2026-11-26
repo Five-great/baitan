@@ -681,6 +681,10 @@ function defaultMeta() {
 function newId(prefix = "x") {
   return prefix + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
 }
+function newStoreId(userId) {
+  const u = String(userId || "").replace(/[^0-9a-zA-Z]/g, "").slice(-8) || "local";
+  return "s-" + u + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
+}
 export {
   COLLECTIONS as C,
   DB_NAME as D,
@@ -693,15 +697,16 @@ export {
   createIndexedDBAdapter as c,
   defaultMeta as d,
   defaultSettings as e,
-  currentDbName as f,
+  newId as f,
   getOrCreateProfile as g,
-  storageErrors as h,
+  currentDbName as h,
   initStorage as i,
-  dbBreakdown as j,
-  baseDbName as k,
-  setDbOverride as l,
-  dropOtherDbs as m,
-  newId as n,
-  storageUsage as o,
+  storageErrors as j,
+  dbBreakdown as k,
+  baseDbName as l,
+  setDbOverride as m,
+  newStoreId as n,
+  dropOtherDbs as o,
+  storageUsage as p,
   switchProfile as s
 };

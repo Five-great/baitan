@@ -472,6 +472,9 @@
   function encodePack(pack) {
     return "PACK1:" + LZString.compressToBase64(JSON.stringify(pack));
   }
+  function encodeText(json) {
+    return "PACK1:" + LZString.compressToBase64(String(json || ""));
+  }
   self.onmessage = function(e) {
     const msg = e.data || {};
     const id = msg.id;
@@ -482,6 +485,7 @@
       }
       let result;
       if (msg.op === "encode") result = encodePack(msg.payload);
+      else if (msg.op === "encodeText") result = encodeText(msg.payload);
       else if (msg.op === "decode") result = decodeText(msg.payload);
       else if (msg.op === "stringify") result = JSON.stringify(msg.payload);
       else if (msg.op === "parse") result = JSON.parse(msg.payload);
