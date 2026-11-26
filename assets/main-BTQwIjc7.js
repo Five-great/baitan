@@ -15048,26 +15048,14 @@ function codecRetryWorker() {
   return true;
 }
 async function encodePack(pack) {
-  const job = callWorker("encode", pack);
-  if (job) {
-    try {
-      const out = await job;
-      if (out !== null && out !== void 0) return out;
-    } catch (e) {
-      if (isCloneError(e)) {
-        try {
-          const json = JSON.stringify(pack);
-          const packed = await encodeTextInWorker(json);
-          if (packed !== null && packed !== void 0) return packed;
-          const LZ2 = await syncLibs();
-          return "PACK1:" + LZ2.compressToBase64(json);
-        } catch (err) {
-        }
-      }
-    }
+  const json = JSON.stringify(pack);
+  try {
+    const packed = await encodeTextInWorker(json);
+    if (packed !== null && packed !== void 0) return packed;
+  } catch (e) {
   }
   const LZ = await syncLibs();
-  return "PACK1:" + LZ.compressToBase64(JSON.stringify(pack));
+  return "PACK1:" + LZ.compressToBase64(json);
 }
 async function decodePack(text) {
   const job = callWorker("decode", text);
@@ -15082,14 +15070,6 @@ async function decodePack(text) {
   return decodeTextSync(LZ, text);
 }
 async function stringifyAsync(obj) {
-  const job = callWorker("stringify", obj);
-  if (job) {
-    try {
-      const out = await job;
-      if (out !== null && out !== void 0) return out;
-    } catch (e) {
-    }
-  }
   return JSON.stringify(obj);
 }
 async function codecSelfTest() {
@@ -19439,6 +19419,7 @@ function exportStorePack(storeId, opts = {}, extra) {
     stockOps: (scope.data.stockOps || []).length,
     expenses: (scope.data.expenses || []).length
   };
+  verifyPackBodies(pack);
   if (opts.grant) pack.grant = { ...opts.grant };
   return pack;
 }
@@ -19471,12 +19452,28 @@ function verifyPackCounts(pack) {
   const bad = [];
   for (const k of Object.keys(cnt)) {
     const want = Number(cnt[k]) || 0;
-    const got = Array.isArray(c[k]) ? c[k].length : 0;
-    if (got < want) bad.push(k + " 应 " + want + " 条、实际 " + got + " 条");
+    const arr = Array.isArray(c[k]) ? c[k] : [];
+    const got = arr.filter(Boolean).length;
+    if (got < want) {
+      bad.push(k + " 应 " + want + " 条、有内容 " + got + " 条" + (arr.length !== got ? "（数组长度 " + arr.length + "，其余是空壳）" : ""));
+    }
   }
   if (bad.length) {
-    throw new Error("数据包不完整（" + bad.join("；") + "），可能在上传/下载时被截断，请让发送方重新导出");
+    throw new Error("数据包是空壳（" + bad.join("；") + "）。发送方导出时数据没带上，请让对方升级到最新版后重新上传一次");
   }
+}
+function verifyPackBodies(pack) {
+  const cnt = pack && pack.counts || {};
+  const c = pack && pack.collections || {};
+  const bad = [];
+  for (const k of Object.keys(cnt)) {
+    const want = Number(cnt[k]) || 0;
+    if (!want) continue;
+    const arr = Array.isArray(c[k]) ? c[k] : [];
+    const got = arr.filter(Boolean).length;
+    if (got < want) bad.push(k + " 应 " + want + " 条、有内容 " + got + " 条");
+  }
+  if (bad.length) throw new Error("导出数据不完整（" + bad.join("；") + "），本次没有上传；请重开应用再试");
 }
 async function shardRowsForStore(storeId) {
   const maps = {};
@@ -19609,7 +19606,7 @@ function exportAgentPack(agentId) {
   const scope = storeScopeData(agent.parentStoreId);
   if (!scope) return null;
   const agentStore = agentStoreWithPay(scope.store);
-  return {
+  const pack = {
     app: "stall-assistant",
     version: 3,
     kind: "agent",
@@ -19631,6 +19628,8 @@ function exportAgentPack(agentId) {
       expenses: (scope.data.expenses || []).length
     }
   };
+  verifyPackBodies(pack);
+  return pack;
 }
 async function importStorePack(remote) {
   await ensureAllShardsLoaded();
@@ -20163,7 +20162,7 @@ function applyTableImport(preview, mode = "merge", fields = null) {
   }
   const store = activeStore.value;
   const valid = preview.rows.filter((r) => !r.errs.length);
-  let created = 0, updated2 = 0, skipped = 0, splitBad = 0;
+  let created = 0, updated2 = 0, skipped2 = 0, splitBad = 0;
   const ensureCat = (name2, parentName = "") => {
     const n2 = String(name2 || "").trim() || "未分类";
     const sid = store ? store.id : "";
@@ -20230,14 +20229,14 @@ function applyTableImport(preview, mode = "merge", fields = null) {
     const identity = idText(r.barcode) ? "b:" + idText(r.barcode) : idText(r.traceCode) ? "t:" + idText(r.traceCode) : "";
     if (identity && mode !== "new") {
       if (seenIdentity.has(identity)) {
-        skipped++;
+        skipped2++;
         return;
       }
       seenIdentity.add(identity);
     }
     const exist = mode === "new" ? null : findExist(r, sid);
     if (exist && mode === "skip") {
-      skipped++;
+      skipped2++;
       return;
     }
     let p2;
@@ -20322,8 +20321,8 @@ function applyTableImport(preview, mode = "merge", fields = null) {
   ensureStoreCategories();
   touch("products", "stocks", "categories");
   const zeroStock = made.filter((m) => Number(m.row.stock) === 0).length;
-  addLog("import", "导入表格：新增 " + created + "、更新 " + updated2 + (skipped ? "、跳过 " + skipped : "") + (zeroStock ? "、0 库存 " + zeroStock : "") + "（" + preview.fileName + "）");
-  return { created, updated: updated2, skipped, splitBad, zeroStock };
+  addLog("import", "导入表格：新增 " + created + "、更新 " + updated2 + (skipped2 ? "、跳过 " + skipped2 : "") + (zeroStock ? "、0 库存 " + zeroStock : "") + "（" + preview.fileName + "）");
+  return { created, updated: updated2, skipped: skipped2, splitBad, zeroStock };
 }
 const _hoisted_1$p = {
   class: "toast-host",
@@ -30246,6 +30245,7 @@ const _sfc_main$7 = {
   }
 };
 const StatsView = /* @__PURE__ */ _export_sfc(_sfc_main$7, [["__scopeId", "data-v-ace7214a"]]);
+const APP_BUILD = "3.11.71";
 function packTtlMs() {
   return getTempConfig().packExpiryHours * 60 * 60 * 1e3;
 }
@@ -30437,7 +30437,7 @@ function retargetPackForStore(pack, storeId) {
 }
 async function uploadCurrent(cfg, store, signal) {
   const rev = dataRev();
-  if (cfg.lastAutoRev === rev && cfg.lastAutoUploadAt && Date.now() - Number(cfg.lastAutoUploadAt) < packTtlMs()) {
+  if (cfg.lastAutoRev === rev && cfg.lastAutoVersion === APP_BUILD && cfg.lastAutoUploadAt && Date.now() - Number(cfg.lastAutoUploadAt) < packTtlMs()) {
     logData("上传跳过", { storeId: store.id, reason: "数据版本没变且上次上传还在 1 小时内", rev });
     return false;
   }
@@ -30485,6 +30485,7 @@ async function uploadCurrent(cfg, store, signal) {
   cfg.memberTag = code;
   cfg.lastAutoHash = String(rev);
   cfg.lastAutoRev = rev;
+  cfg.lastAutoVersion = APP_BUILD;
   cfg.lastAutoUploadAt = uploadedAt;
   cfg.mainDirty = true;
   rememberOwn(cfg, { id: up.id });
@@ -30553,6 +30554,8 @@ async function pullOthers(cfg, store, signal) {
         if (p2.packId) cfg.mergedPackIds.push(p2.packId);
         cfg.mainMembers = { ...cfg.mainMembers || {}, [code]: mem };
       } catch (e) {
+        skipped++;
+        logData("导入成员包失败", { from: code, packId: p2.packId, storeId: store.id, error: e && e.message || String(e) });
       }
     }
   }
@@ -30592,6 +30595,8 @@ async function pullOthers(cfg, store, signal) {
       cfg.mergedFileIds = (cfg.mergedFileIds || []).slice(-60);
       if (f.id) cfg.mergedFileIds.push(f.id);
     } catch (e) {
+      skipped++;
+      logData("导入旧包失败", { file: f.name, fileId: f.id, storeId: store.id, error: e && e.message || String(e) });
     }
   }
   if (merged) {
@@ -34848,9 +34853,10 @@ const _sfc_main$1 = {
     async function autoPullOthers(manual = false) {
       if (!tf.value || !store.value) return { merged: 0, skipped: 0, blocked: false };
       let merged = 0;
-      let skipped = 0;
+      let skipped2 = 0;
       let skippedTarget2 = 0;
       let blocked = false;
+      let lastError2 = "";
       const st = store.value;
       const selfCode = tempMemberCode(st.id);
       const ownerView = !isAgent.value && st.mine !== false && !st.asAgent;
@@ -34859,7 +34865,7 @@ const _sfc_main$1 = {
         remote = await readTempMainCopies(tf.value, { skipCodes: [selfCode], reason: "查看云群组主文件" });
       } catch (e) {
         if (manual) tfErr(e);
-        return { merged, skipped, blocked };
+        return { merged, skipped: skipped2, blocked };
       }
       if (remote.blocked) blocked = true;
       const main = mergeMainCopies(remote.copies);
@@ -34874,7 +34880,7 @@ const _sfc_main$1 = {
         if (!ownerView && p2.audience !== "all") continue;
         if (p2.expiresAt && p2.expiresAt + 60 * 1e3 < Date.now()) continue;
         if (p2.packId && (tf.value.mergedPackIds || []).includes(p2.packId)) {
-          skipped++;
+          skipped2++;
           continue;
         }
         let text;
@@ -34889,20 +34895,20 @@ const _sfc_main$1 = {
         try {
           pack = await parsePack2(text);
         } catch (e) {
-          skipped++;
+          skipped2++;
           continue;
         }
         if (!pack || pack.kind !== "store" && pack.kind !== "agent") {
-          skipped++;
+          skipped2++;
           continue;
         }
         if (!packTargetsStore(pack, st.id)) {
-          skipped++;
+          skipped2++;
           continue;
         }
         pack = retargetPackForStore(pack, st.id);
         if (!ownerView && pack.audience === "owner") {
-          skipped++;
+          skipped2++;
           continue;
         }
         try {
@@ -34912,8 +34918,9 @@ const _sfc_main$1 = {
           if (p2.packId) tf.value.mergedPackIds.push(p2.packId);
           tf.value.mainMembers = { ...tf.value.mainMembers || {}, [code]: mem };
         } catch (e) {
-          skipped++;
-          autoStatus.value = "有包导入失败：" + (e && e.message ? e.message : "格式不对");
+          skipped2++;
+          lastError2 = e && e.message ? e.message : "格式不对";
+          autoStatus.value = "有包导入失败：" + lastError2;
         }
       }
       let list = [];
@@ -34924,11 +34931,11 @@ const _sfc_main$1 = {
       for (const f of visibleTempFiles(list)) {
         if (!f || !f.id) continue;
         if (isOwnTempFile(f)) {
-          skipped++;
+          skipped2++;
           continue;
         }
         if ((tf.value.mergedFileIds || []).includes(f.id)) {
-          skipped++;
+          skipped2++;
           continue;
         }
         let text;
@@ -34942,11 +34949,11 @@ const _sfc_main$1 = {
         try {
           pack = await parsePack2(text);
         } catch (e) {
-          skipped++;
+          skipped2++;
           continue;
         }
         if (pack.kind === "sync") {
-          skipped++;
+          skipped2++;
           continue;
         }
         try {
@@ -34956,7 +34963,8 @@ const _sfc_main$1 = {
           tf.value.mergedFileIds = (tf.value.mergedFileIds || []).slice(-60);
           if (f.id) tf.value.mergedFileIds.push(f.id);
         } catch (e) {
-          skipped++;
+          skipped2++;
+          lastError2 = e && e.message ? e.message : "格式不对";
         }
       }
       if (merged) {
@@ -34965,7 +34973,7 @@ const _sfc_main$1 = {
         saveFolder(store.value.id, tf.value);
         autoStatus.value = "本轮已合并 " + merged + " 个包";
       }
-      return { merged, skipped, blocked, skippedTarget: skippedTarget2 };
+      return { merged, skipped: skipped2, blocked, skippedTarget: skippedTarget2, lastError: lastError2 };
     }
     async function tfRetryMainOnly() {
       if (!tf.value || !store.value) {
@@ -35026,6 +35034,7 @@ const _sfc_main$1 = {
         if (!tf.value) return;
         const r = await autoPullOthers(true);
         if (r.merged) tip("已同步 " + r.merged + " 个包" + (r.skippedTarget ? "；另有 " + r.skippedTarget + " 个包不属于本店，已跳过" : ""));
+        else if (r.lastError) tip("有包但没合进来：" + r.lastError, "error");
         else if (r.blocked) tip("浏览器限制自动读取，请用文件行的「下载」再「导入临时文件」");
         else if (r.skippedTarget) tip("读到 " + r.skippedTarget + " 个包但不属于这家店，已跳过（代理包要先由店主拉取）");
         else tip("没有需要合并的新包");
@@ -36737,7 +36746,7 @@ const _sfc_main$1 = {
             ])
           ]),
           sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_213, [..._cache[137] || (_cache[137] = [
-            createStaticVNode('<p class="hint" style="line-height:2;" data-v-daf8168d> · 数据默认存 IndexedDB（库 <span class="mono" data-v-daf8168d>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-daf8168d> · <b data-v-daf8168d>同步包 ≠ 整机备份</b>：<br data-v-daf8168d> 　– <b data-v-daf8168d>同步包</b>（.json + sync 标记）：导入是<b data-v-daf8168d>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-daf8168d> 　– <b data-v-daf8168d>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-daf8168d> 　– 一句话记：<b data-v-daf8168d>同步 = 覆盖成一模一样</b>，<b data-v-daf8168d>店铺包 = 按店更新合并</b>。<br data-v-daf8168d> · 三种数据包，互不混淆：<b data-v-daf8168d>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-daf8168d>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-daf8168d>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-daf8168d> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-daf8168d>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-daf8168d> · <b data-v-daf8168d>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-daf8168d> · 「共管」店铺可以随时<b data-v-daf8168d>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-daf8168d> · 代理端是本站的 <span class="mono" data-v-daf8168d>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-daf8168d> · <b data-v-daf8168d>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-daf8168d> · <b data-v-daf8168d>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-daf8168d> · <b data-v-daf8168d>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-daf8168d> · <b data-v-daf8168d>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-daf8168d> · <b data-v-daf8168d>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-daf8168d> · <b data-v-daf8168d>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-daf8168d> · <b data-v-daf8168d>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-daf8168d> · 店铺带两种「不是自己建的」标记：<b data-v-daf8168d>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-daf8168d>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-daf8168d> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-daf8168d> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
+            createStaticVNode('<p class="hint" style="line-height:2;" data-v-c4750ccd> · 数据默认存 IndexedDB（库 <span class="mono" data-v-c4750ccd>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-c4750ccd> · <b data-v-c4750ccd>同步包 ≠ 整机备份</b>：<br data-v-c4750ccd> 　– <b data-v-c4750ccd>同步包</b>（.json + sync 标记）：导入是<b data-v-c4750ccd>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-c4750ccd> 　– <b data-v-c4750ccd>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-c4750ccd> 　– 一句话记：<b data-v-c4750ccd>同步 = 覆盖成一模一样</b>，<b data-v-c4750ccd>店铺包 = 按店更新合并</b>。<br data-v-c4750ccd> · 三种数据包，互不混淆：<b data-v-c4750ccd>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-c4750ccd>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-c4750ccd>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-c4750ccd> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-c4750ccd>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-c4750ccd> · <b data-v-c4750ccd>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-c4750ccd> · 「共管」店铺可以随时<b data-v-c4750ccd>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-c4750ccd> · 代理端是本站的 <span class="mono" data-v-c4750ccd>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-c4750ccd> · <b data-v-c4750ccd>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-c4750ccd> · <b data-v-c4750ccd>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-c4750ccd> · <b data-v-c4750ccd>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-c4750ccd> · <b data-v-c4750ccd>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-c4750ccd> · <b data-v-c4750ccd>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-c4750ccd> · <b data-v-c4750ccd>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-c4750ccd> · <b data-v-c4750ccd>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-c4750ccd> · 店铺带两种「不是自己建的」标记：<b data-v-c4750ccd>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-c4750ccd>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-c4750ccd> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-c4750ccd> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
           ])])) : createCommentVNode("", true)
         ], 2),
         createBaseVNode("div", _hoisted_214, [
@@ -36755,7 +36764,7 @@ const _sfc_main$1 = {
           ]),
           _cache[138] || (_cache[138] = createBaseVNode("span", { class: "brand-site mono" }, [
             createBaseVNode("b", null, "8-3.de5.net"),
-            createBaseVNode("span", null, "v3.11.70")
+            createBaseVNode("span", null, "v3.11.71")
           ], -1))
         ]),
         createVNode(_component_var_popup, {
@@ -37148,7 +37157,7 @@ const _sfc_main$1 = {
     };
   }
 };
-const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-daf8168d"]]);
+const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-c4750ccd"]]);
 const errBox = /* @__PURE__ */ reactive({ list: [], count: 0, seen: 0 });
 let installed = false;
 const MAX = 30;
