@@ -19964,6 +19964,272 @@ function installConsoleCapture() {
     push("error", "未处理的 Promise 报错：" + (r && r.stack ? r.stack : safeText([r])));
   });
 }
+const scriptRel = "modulepreload";
+const assetsURL = function(dep, importerUrl) {
+  return new URL(dep, importerUrl).href;
+};
+const seen = {};
+const __vitePreload = function preload(baseModule, deps, importerUrl) {
+  let promise = Promise.resolve();
+  if (deps && deps.length > 0) {
+    const links = document.getElementsByTagName("link");
+    const cspNonceMeta = document.querySelector(
+      "meta[property=csp-nonce]"
+    );
+    const cspNonce = (cspNonceMeta == null ? void 0 : cspNonceMeta.nonce) || (cspNonceMeta == null ? void 0 : cspNonceMeta.getAttribute("nonce"));
+    promise = Promise.allSettled(
+      deps.map((dep) => {
+        dep = assetsURL(dep, importerUrl);
+        if (dep in seen) return;
+        seen[dep] = true;
+        const isCss = dep.endsWith(".css");
+        const cssSelector = isCss ? '[rel="stylesheet"]' : "";
+        const isBaseRelative = !!importerUrl;
+        if (isBaseRelative) {
+          for (let i = links.length - 1; i >= 0; i--) {
+            const link2 = links[i];
+            if (link2.href === dep && (!isCss || link2.rel === "stylesheet")) {
+              return;
+            }
+          }
+        } else if (document.querySelector(`link[href="${dep}"]${cssSelector}`)) {
+          return;
+        }
+        const link = document.createElement("link");
+        link.rel = isCss ? "stylesheet" : scriptRel;
+        if (!isCss) {
+          link.as = "script";
+        }
+        link.crossOrigin = "";
+        link.href = dep;
+        if (cspNonce) {
+          link.setAttribute("nonce", cspNonce);
+        }
+        document.head.appendChild(link);
+        if (isCss) {
+          return new Promise((res, rej) => {
+            link.addEventListener("load", res);
+            link.addEventListener(
+              "error",
+              () => rej(new Error(`Unable to preload CSS for ${dep}`))
+            );
+          });
+        }
+      })
+    );
+  }
+  function handlePreloadError(err) {
+    const e = new Event("vite:preloadError", {
+      cancelable: true
+    });
+    e.payload = err;
+    window.dispatchEvent(e);
+    if (!e.defaultPrevented) {
+      throw err;
+    }
+  }
+  return promise.then((res) => {
+    for (const item of res || []) {
+      if (item.status !== "rejected") continue;
+      handlePreloadError(item.reason);
+    }
+    return baseModule().catch(handlePreloadError);
+  });
+};
+const TIMEOUT_MS = 8e3;
+const HANDSHAKE_MS = 1500;
+let worker = null;
+let workerBroken = false;
+let seq = 0;
+const pending = /* @__PURE__ */ new Map();
+let syncLib = null;
+async function syncLibs() {
+  if (!syncLib) {
+    const mod = await __vitePreload(() => import("./lz-string-CyXdMKby.js").then((n2) => n2.l), true ? [] : void 0, import.meta.url);
+    syncLib = mod.default || mod;
+  }
+  return syncLib;
+}
+function decodeTextSync(LZString, raw) {
+  let t2 = String(raw || "").replace(/^\uFEFF/, "").trim();
+  if (!t2) throw new Error("内容是空的");
+  if (/^PACK1:/i.test(t2)) {
+    const plain = LZString.decompressFromBase64(t2.slice(6).replace(/\s+/g, ""));
+    if (!plain) throw new Error("压缩包不完整（可能被截断了）");
+    return JSON.parse(plain);
+  }
+  try {
+    return JSON.parse(t2);
+  } catch (e) {
+  }
+  const a = t2.indexOf("{");
+  const b = t2.lastIndexOf("}");
+  if (a >= 0 && b > a) return JSON.parse(t2.slice(a, b + 1));
+  throw new Error("数据包格式不对");
+}
+let warned = false;
+function warnOnce(reason) {
+  if (warned) return;
+  warned = true;
+  try {
+    console.warn("[同步线程] " + reason + "，已自动退回主线程（功能不受影响）");
+  } catch (e) {
+  }
+}
+function killWorker(reason) {
+  warnOnce(reason);
+  workerBroken = true;
+  for (const [, p2] of pending) p2.reject(new Error(reason || "同步线程不可用"));
+  pending.clear();
+  try {
+    if (worker) worker.terminate();
+  } catch (e) {
+  }
+  worker = null;
+}
+function ensureWorker() {
+  if (worker || workerBroken) return worker;
+  if (typeof Worker === "undefined") {
+    workerBroken = true;
+    return null;
+  }
+  try {
+    worker = new Worker(new URL(
+      /* @vite-ignore */
+      "" + new URL("sync-codec.worker-DIjnEWFt.js", import.meta.url).href,
+      import.meta.url
+    ), { type: "module" });
+    worker.onmessage = (e) => {
+      const msg = e.data || {};
+      const p2 = pending.get(msg.id);
+      if (!p2) return;
+      pending.delete(msg.id);
+      clearTimeout(p2.timer);
+      if (msg.error) p2.reject(new Error(msg.error));
+      else p2.resolve(msg.result);
+    };
+    worker.onerror = (e) => {
+      killWorker(e && e.message ? e.message : "同步线程加载失败");
+    };
+    worker.onmessageerror = () => killWorker("同步线程消息解析失败");
+    handshake(worker);
+  } catch (e) {
+    workerBroken = true;
+    worker = null;
+  }
+  return worker;
+}
+function handshake(w) {
+  const id = -1;
+  let done = false;
+  const onMsg = (e) => {
+    const msg = e.data || {};
+    if (msg.id !== id || !msg.pong) return;
+    done = true;
+    clearTimeout(timer2);
+    try {
+      w.removeEventListener("message", onMsg);
+    } catch (err) {
+    }
+  };
+  const timer2 = setTimeout(() => {
+    if (done) return;
+    try {
+      w.removeEventListener("message", onMsg);
+    } catch (err) {
+    }
+    killWorker("握手超时（脚本没跑起来或被拦截）");
+  }, HANDSHAKE_MS);
+  try {
+    w.addEventListener("message", onMsg);
+  } catch (err) {
+  }
+  try {
+    w.postMessage({ id, op: "ping" });
+  } catch (err) {
+    killWorker("同步线程发送失败");
+  }
+}
+function callWorker(op, payload) {
+  const w = ensureWorker();
+  if (!w) return null;
+  const id = ++seq;
+  return new Promise((resolve2, reject) => {
+    const timer2 = setTimeout(() => {
+      pending.delete(id);
+      killWorker("同步线程超时");
+      reject(new Error("同步线程超时"));
+    }, TIMEOUT_MS);
+    pending.set(id, { resolve: resolve2, reject, timer: timer2 });
+    try {
+      w.postMessage({ id, op, payload });
+    } catch (e) {
+      clearTimeout(timer2);
+      pending.delete(id);
+      killWorker("同步线程发送失败");
+      reject(e);
+    }
+  });
+}
+function codecMode() {
+  if (worker) return "worker";
+  return workerBroken ? "main" : "worker-idle";
+}
+async function encodePack(pack) {
+  const job = callWorker("encode", pack);
+  if (job) {
+    try {
+      return await job;
+    } catch (e) {
+    }
+  }
+  const LZ = await syncLibs();
+  return "PACK1:" + LZ.compressToBase64(JSON.stringify(pack));
+}
+async function decodePack(text) {
+  const job = callWorker("decode", text);
+  if (job) {
+    try {
+      return await job;
+    } catch (e) {
+    }
+  }
+  const LZ = await syncLibs();
+  return decodeTextSync(LZ, text);
+}
+async function stringifyAsync(obj) {
+  const job = callWorker("stringify", obj);
+  if (job) {
+    try {
+      return await job;
+    } catch (e) {
+    }
+  }
+  return JSON.stringify(obj);
+}
+async function codecSelfTest() {
+  const sample = {
+    kind: "store",
+    pad: Array.from({ length: 300 }, (_, i) => ({
+      id: "o" + i,
+      qty: i % 5 + 1,
+      items: Array.from({ length: 6 }, (_2, j) => ({ p: "p" + j, name: "商品" + j }))
+    }))
+  };
+  const t0 = performance.now();
+  const text = await encodePack(sample);
+  const encodeMs = Math.round(performance.now() - t0);
+  const t1 = performance.now();
+  const back = await decodePack(text);
+  const decodeMs = Math.round(performance.now() - t1);
+  return {
+    mode: codecMode(),
+    ok: !!(back && back.pad && back.pad.length === 300),
+    encodeMs,
+    decodeMs,
+    bytes: text.length
+  };
+}
 const _hoisted_1$n = {
   key: 0,
   class: "dev-fab-wrap"
@@ -20038,6 +20304,18 @@ const _sfc_main$n = {
       clearConsoleRows();
       tip("已清空");
     }
+    async function runSelfTest() {
+      tip("正在自检同步线程…");
+      try {
+        const r = await codecSelfTest();
+        console.info("[自检] 同步线程 " + (r.ok ? "正常" : "异常") + " · 运行在 " + (r.mode === "worker" ? "Worker 线程" : "主线程（已回退）") + " · 打包 " + r.encodeMs + "ms · 解包 " + r.decodeMs + "ms · " + r.bytes + " 字节");
+        tip("自检完成：" + (r.mode === "worker" ? "Worker 线程" : "主线程回退"));
+      } catch (e) {
+        console.error("[自检] 同步线程失败 " + (e && e.message ? e.message : e));
+        tip("自检失败，详见面板日志", "error");
+      }
+    }
+    const codecLabel = computed(() => codecMode() === "worker" || codecMode() === "worker-idle" ? "Worker" : "主线程");
     return (_ctx, _cache) => {
       const _component_var_popup = resolveComponent("var-popup");
       return openBlock(), createElementBlock(Fragment, null, [
@@ -20060,7 +20338,7 @@ const _sfc_main$n = {
             createBaseVNode("div", _hoisted_3$l, [
               createBaseVNode("header", _hoisted_4$l, [
                 _cache[8] || (_cache[8] = createBaseVNode("b", null, "手机控制台", -1)),
-                createBaseVNode("span", _hoisted_5$l, "共 " + toDisplayString(counts.value.all) + " 条 · 报错 " + toDisplayString(counts.value.error) + " · 警告 " + toDisplayString(counts.value.warn), 1),
+                createBaseVNode("span", _hoisted_5$l, "共 " + toDisplayString(counts.value.all) + " 条 · 报错 " + toDisplayString(counts.value.error) + " · 警告 " + toDisplayString(counts.value.warn) + " · 同步线程 " + toDisplayString(codecLabel.value), 1),
                 _cache[9] || (_cache[9] = createBaseVNode("div", { class: "dev-spacer" }, null, -1)),
                 createBaseVNode("button", {
                   class: "icon-btn",
@@ -20097,6 +20375,10 @@ const _sfc_main$n = {
                 _cache[10] || (_cache[10] = createBaseVNode("div", { class: "dev-spacer" }, null, -1)),
                 createBaseVNode("button", {
                   class: "chip sm",
+                  onClick: runSelfTest
+                }, "线程自检"),
+                createBaseVNode("button", {
+                  class: "chip sm",
                   onClick: copyAll
                 }, "复制"),
                 createBaseVNode("button", {
@@ -20129,7 +20411,7 @@ const _sfc_main$n = {
     };
   }
 };
-const DevConsole = /* @__PURE__ */ _export_sfc(_sfc_main$n, [["__scopeId", "data-v-ee9590c8"]]);
+const DevConsole = /* @__PURE__ */ _export_sfc(_sfc_main$n, [["__scopeId", "data-v-d51a9ab0"]]);
 const _hoisted_1$m = ["width", "height", "innerHTML"];
 const _hoisted_2$l = ["src", "alt"];
 const _sfc_main$m = {
@@ -20279,78 +20561,6 @@ const _sfc_main$l = {
   }
 };
 const HelpTip = /* @__PURE__ */ _export_sfc(_sfc_main$l, [["__scopeId", "data-v-fe4f4b52"]]);
-const scriptRel = "modulepreload";
-const assetsURL = function(dep, importerUrl) {
-  return new URL(dep, importerUrl).href;
-};
-const seen = {};
-const __vitePreload = function preload(baseModule, deps, importerUrl) {
-  let promise = Promise.resolve();
-  if (deps && deps.length > 0) {
-    const links = document.getElementsByTagName("link");
-    const cspNonceMeta = document.querySelector(
-      "meta[property=csp-nonce]"
-    );
-    const cspNonce = (cspNonceMeta == null ? void 0 : cspNonceMeta.nonce) || (cspNonceMeta == null ? void 0 : cspNonceMeta.getAttribute("nonce"));
-    promise = Promise.allSettled(
-      deps.map((dep) => {
-        dep = assetsURL(dep, importerUrl);
-        if (dep in seen) return;
-        seen[dep] = true;
-        const isCss = dep.endsWith(".css");
-        const cssSelector = isCss ? '[rel="stylesheet"]' : "";
-        const isBaseRelative = !!importerUrl;
-        if (isBaseRelative) {
-          for (let i = links.length - 1; i >= 0; i--) {
-            const link2 = links[i];
-            if (link2.href === dep && (!isCss || link2.rel === "stylesheet")) {
-              return;
-            }
-          }
-        } else if (document.querySelector(`link[href="${dep}"]${cssSelector}`)) {
-          return;
-        }
-        const link = document.createElement("link");
-        link.rel = isCss ? "stylesheet" : scriptRel;
-        if (!isCss) {
-          link.as = "script";
-        }
-        link.crossOrigin = "";
-        link.href = dep;
-        if (cspNonce) {
-          link.setAttribute("nonce", cspNonce);
-        }
-        document.head.appendChild(link);
-        if (isCss) {
-          return new Promise((res, rej) => {
-            link.addEventListener("load", res);
-            link.addEventListener(
-              "error",
-              () => rej(new Error(`Unable to preload CSS for ${dep}`))
-            );
-          });
-        }
-      })
-    );
-  }
-  function handlePreloadError(err) {
-    const e = new Event("vite:preloadError", {
-      cancelable: true
-    });
-    e.payload = err;
-    window.dispatchEvent(e);
-    if (!e.defaultPrevented) {
-      throw err;
-    }
-  }
-  return promise.then((res) => {
-    for (const item of res || []) {
-      if (item.status !== "rejected") continue;
-      handlePreloadError(item.reason);
-    }
-    return baseModule().catch(handlePreloadError);
-  });
-};
 const WASM_FORMATS = ["EAN13", "EAN8", "UPCA", "UPCE", "Code128", "Code39", "ITF", "Codabar", "DataBar"];
 function cleanScan(raw) {
   let v = String(raw == null ? "" : raw).replace(/[０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 65248)).replace(/[\s\u200b-\u200d\ufeff]/g, "");
@@ -29755,134 +29965,6 @@ const _sfc_main$7 = {
   }
 };
 const StatsView = /* @__PURE__ */ _export_sfc(_sfc_main$7, [["__scopeId", "data-v-c18b5b36"]]);
-const TIMEOUT_MS = 15e3;
-let worker = null;
-let workerBroken = false;
-let seq = 0;
-const pending = /* @__PURE__ */ new Map();
-let syncLib = null;
-async function syncLibs() {
-  if (!syncLib) {
-    const mod = await __vitePreload(() => import("./lz-string-CyXdMKby.js").then((n2) => n2.l), true ? [] : void 0, import.meta.url);
-    syncLib = mod.default || mod;
-  }
-  return syncLib;
-}
-function decodeTextSync(LZString, raw) {
-  let t2 = String(raw || "").replace(/^\uFEFF/, "").trim();
-  if (!t2) throw new Error("内容是空的");
-  if (/^PACK1:/i.test(t2)) {
-    const plain = LZString.decompressFromBase64(t2.slice(6).replace(/\s+/g, ""));
-    if (!plain) throw new Error("压缩包不完整（可能被截断了）");
-    return JSON.parse(plain);
-  }
-  try {
-    return JSON.parse(t2);
-  } catch (e) {
-  }
-  const a = t2.indexOf("{");
-  const b = t2.lastIndexOf("}");
-  if (a >= 0 && b > a) return JSON.parse(t2.slice(a, b + 1));
-  throw new Error("数据包格式不对");
-}
-function killWorker(reason) {
-  workerBroken = true;
-  for (const [, p2] of pending) p2.reject(new Error(reason || "同步线程不可用"));
-  pending.clear();
-  try {
-    if (worker) worker.terminate();
-  } catch (e) {
-  }
-  worker = null;
-}
-function ensureWorker() {
-  if (worker || workerBroken) return worker;
-  if (typeof Worker === "undefined") {
-    workerBroken = true;
-    return null;
-  }
-  try {
-    worker = new Worker(new URL(
-      /* @vite-ignore */
-      "" + new URL("sync-codec.worker-DqXccCZx.js", import.meta.url).href,
-      import.meta.url
-    ), { type: "module" });
-    worker.onmessage = (e) => {
-      const msg = e.data || {};
-      const p2 = pending.get(msg.id);
-      if (!p2) return;
-      pending.delete(msg.id);
-      clearTimeout(p2.timer);
-      if (msg.error) p2.reject(new Error(msg.error));
-      else p2.resolve(msg.result);
-    };
-    worker.onerror = (e) => {
-      killWorker(e && e.message ? e.message : "同步线程加载失败");
-    };
-    worker.onmessageerror = () => killWorker("同步线程消息解析失败");
-  } catch (e) {
-    workerBroken = true;
-    worker = null;
-  }
-  return worker;
-}
-function callWorker(op, payload) {
-  const w = ensureWorker();
-  if (!w) return null;
-  const id = ++seq;
-  return new Promise((resolve2, reject) => {
-    const timer2 = setTimeout(() => {
-      pending.delete(id);
-      killWorker("同步线程超时");
-      reject(new Error("同步线程超时"));
-    }, TIMEOUT_MS);
-    pending.set(id, { resolve: resolve2, reject, timer: timer2 });
-    try {
-      w.postMessage({ id, op, payload });
-    } catch (e) {
-      clearTimeout(timer2);
-      pending.delete(id);
-      killWorker("同步线程发送失败");
-      reject(e);
-    }
-  });
-}
-function codecMode() {
-  if (worker) return "worker";
-  return workerBroken ? "main" : "worker-idle";
-}
-async function encodePack(pack) {
-  const job = callWorker("encode", pack);
-  if (job) {
-    try {
-      return await job;
-    } catch (e) {
-    }
-  }
-  const LZ = await syncLibs();
-  return "PACK1:" + LZ.compressToBase64(JSON.stringify(pack));
-}
-async function decodePack(text) {
-  const job = callWorker("decode", text);
-  if (job) {
-    try {
-      return await job;
-    } catch (e) {
-    }
-  }
-  const LZ = await syncLibs();
-  return decodeTextSync(LZ, text);
-}
-async function stringifyAsync(obj) {
-  const job = callWorker("stringify", obj);
-  if (job) {
-    try {
-      return await job;
-    } catch (e) {
-    }
-  }
-  return JSON.stringify(obj);
-}
 function packTtlMs() {
   return getTempConfig().packExpiryHours * 60 * 60 * 1e3;
 }
@@ -36017,7 +36099,7 @@ const _sfc_main$1 = {
             ])
           ]),
           sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_196, [..._cache[123] || (_cache[123] = [
-            createStaticVNode('<p class="hint" style="line-height:2;" data-v-f6ae27df> · 数据默认存 IndexedDB（库 <span class="mono" data-v-f6ae27df>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-f6ae27df> · <b data-v-f6ae27df>同步包 ≠ 整机备份</b>：<br data-v-f6ae27df> 　– <b data-v-f6ae27df>同步包</b>（.json + sync 标记）：导入是<b data-v-f6ae27df>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-f6ae27df> 　– <b data-v-f6ae27df>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-f6ae27df> 　– 一句话记：<b data-v-f6ae27df>同步 = 覆盖成一模一样</b>，<b data-v-f6ae27df>店铺包 = 按店更新合并</b>。<br data-v-f6ae27df> · 三种数据包，互不混淆：<b data-v-f6ae27df>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-f6ae27df>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-f6ae27df>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-f6ae27df> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-f6ae27df>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-f6ae27df> · <b data-v-f6ae27df>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-f6ae27df> · 「共管」店铺可以随时<b data-v-f6ae27df>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-f6ae27df> · 代理端是本站的 <span class="mono" data-v-f6ae27df>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-f6ae27df> · <b data-v-f6ae27df>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-f6ae27df> · <b data-v-f6ae27df>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-f6ae27df> · <b data-v-f6ae27df>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-f6ae27df> · <b data-v-f6ae27df>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-f6ae27df> · <b data-v-f6ae27df>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-f6ae27df> · <b data-v-f6ae27df>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-f6ae27df> · <b data-v-f6ae27df>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-f6ae27df> · 店铺带两种「不是自己建的」标记：<b data-v-f6ae27df>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-f6ae27df>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-f6ae27df> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-f6ae27df> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
+            createStaticVNode('<p class="hint" style="line-height:2;" data-v-c4db7b79> · 数据默认存 IndexedDB（库 <span class="mono" data-v-c4db7b79>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-c4db7b79> · <b data-v-c4db7b79>同步包 ≠ 整机备份</b>：<br data-v-c4db7b79> 　– <b data-v-c4db7b79>同步包</b>（.json + sync 标记）：导入是<b data-v-c4db7b79>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-c4db7b79> 　– <b data-v-c4db7b79>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-c4db7b79> 　– 一句话记：<b data-v-c4db7b79>同步 = 覆盖成一模一样</b>，<b data-v-c4db7b79>店铺包 = 按店更新合并</b>。<br data-v-c4db7b79> · 三种数据包，互不混淆：<b data-v-c4db7b79>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-c4db7b79>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-c4db7b79>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-c4db7b79> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-c4db7b79>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-c4db7b79> · <b data-v-c4db7b79>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-c4db7b79> · 「共管」店铺可以随时<b data-v-c4db7b79>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-c4db7b79> · 代理端是本站的 <span class="mono" data-v-c4db7b79>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺数据包」接入。<br data-v-c4db7b79> · <b data-v-c4db7b79>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-c4db7b79> · <b data-v-c4db7b79>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-c4db7b79> · <b data-v-c4db7b79>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-c4db7b79> · <b data-v-c4db7b79>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-c4db7b79> · <b data-v-c4db7b79>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-c4db7b79> · <b data-v-c4db7b79>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-c4db7b79> · <b data-v-c4db7b79>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-c4db7b79> · 店铺带两种「不是自己建的」标记：<b data-v-c4db7b79>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-c4db7b79>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-c4db7b79> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-c4db7b79> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
           ])])) : createCommentVNode("", true)
         ], 2),
         createBaseVNode("div", _hoisted_197, [
@@ -36035,7 +36117,7 @@ const _sfc_main$1 = {
           ]),
           _cache[124] || (_cache[124] = createBaseVNode("span", { class: "brand-site mono" }, [
             createBaseVNode("b", null, "8-3.de5.net"),
-            createBaseVNode("span", null, "v3.11.62")
+            createBaseVNode("span", null, "v3.11.63")
           ], -1))
         ]),
         createVNode(_component_var_popup, {
@@ -36394,7 +36476,7 @@ const _sfc_main$1 = {
     };
   }
 };
-const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-f6ae27df"]]);
+const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-c4db7b79"]]);
 const errBox = /* @__PURE__ */ reactive({ list: [], count: 0, seen: 0 });
 let installed = false;
 const MAX = 30;
@@ -37453,7 +37535,7 @@ app.component("VarSwitch", stdin_default);
 app.component("VarInput", stdin_default$8);
 window.$dialog = stdin_default$2;
 window.$tip = tip;
-window.$codec = { encodePack, decodePack, mode: codecMode };
+window.$codec = { encodePack, decodePack, mode: codecMode, test: codecSelfTest };
 window.$pack = { export: exportStorePackReady, import: importStorePack, mode: packLastMode };
 const isAgentEntry = /agent\.html/i.test(location.pathname);
 if (isAgentEntry) app.mount("#app");

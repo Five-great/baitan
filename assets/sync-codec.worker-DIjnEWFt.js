@@ -476,6 +476,10 @@
     const msg = e.data || {};
     const id = msg.id;
     try {
+      if (msg.op === "ping") {
+        self.postMessage({ id, pong: true });
+        return;
+      }
       let result;
       if (msg.op === "encode") result = encodePack(msg.payload);
       else if (msg.op === "decode") result = decodeText(msg.payload);
