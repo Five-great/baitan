@@ -1,5 +1,5 @@
-const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./DevConsole-fcUfDskr.js","./runtime-dom.esm-bundler-B2kB7eKY.js","./schema-CxiIvDUT.js","./DevConsole-q3zGm_6y.css"])))=>i.map(i=>d[i]);
-import { w as watch, i as isRef, f as onBeforeUnmount, g as onDeactivated, r as ref, h as onMounted, n as nextTick, j as onActivated, k as onUnmounted, l as onUpdated, p as provide, m as reactive, q as computed, u as unref, s as getCurrentInstance, t as isVNode, v as inject, e as createApp, x as h, y as defineComponent, C as Comment, F as Fragment, z as onBeforeMount, A as createVNode, T as Teleport, B as withDirectives, D as vShow, E as Transition, G as mergeProps, o as openBlock, c as createElementBlock, H as normalizeStyle, I as normalizeClass, J as createBlock, K as resolveDynamicComponent, L as withCtx, a as createBaseVNode, M as toDisplayString, N as createCommentVNode, O as renderSlot, P as resolveComponent, Q as createSlots, R as normalizeProps, S as guardReactiveProps, U as renderList, d as createTextVNode, V as resolveDirective, W as TransitionGroup, X as withModifiers, Y as withKeys, Z as vModelText, b as createStaticVNode, _ as vModelCheckbox, $ as defineAsyncComponent } from "./runtime-dom.esm-bundler-B2kB7eKY.js";
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./DevConsole-DtKsJDhe.js","./runtime-dom.esm-bundler-q_bMS1-u.js","./schema-CxiIvDUT.js","./DevConsole-q3zGm_6y.css"])))=>i.map(i=>d[i]);
+import { w as watch, i as isRef, j as onBeforeUnmount, k as onDeactivated, g as ref, l as onMounted, m as nextTick, p as onActivated, q as onUnmounted, s as onUpdated, v as provide, x as reactive, f as computed, u as unref, y as getCurrentInstance, z as isVNode, A as inject, h as createApp, B as h, C as defineComponent, D as Comment, F as Fragment, E as onBeforeMount, G as createVNode, T as Teleport, H as withDirectives, I as vShow, J as Transition, K as mergeProps, o as openBlock, c as createElementBlock, e as normalizeStyle, n as normalizeClass, L as createBlock, M as resolveDynamicComponent, N as withCtx, a as createBaseVNode, t as toDisplayString, O as createCommentVNode, P as renderSlot, Q as resolveComponent, R as createSlots, S as normalizeProps, U as guardReactiveProps, r as renderList, d as createTextVNode, V as resolveDirective, W as TransitionGroup, X as withModifiers, Y as withKeys, Z as vModelText, b as createStaticVNode, _ as vModelCheckbox, $ as defineAsyncComponent } from "./runtime-dom.esm-bundler-q_bMS1-u.js";
 import { c as createIndexedDBAdapter, n as newStoreId, C as COLLECTIONS, R as ROLE, d as defaultMeta, e as defaultSettings, h as newId, b as storage, j as currentDbName, D as DB_NAME, i as initStorage, k as storageErrors, f as findProfileByAgentCode, s as switchProfile, a as addProfile, l as dbBreakdown, g as getOrCreateProfile, m as baseDbName, o as setDbOverride, p as dropOtherDbs, U as UNITS, F as FONT_STEPS, T as THEME_COLORS, q as storageUsage } from "./schema-CxiIvDUT.js";
 function isArray(val) {
   return Array.isArray(val);
@@ -424,7 +424,7 @@ function createStorage(storage2) {
 }
 createStorage(getGlobalThis().sessionStorage);
 createStorage(getGlobalThis().localStorage);
-function call(fn, ...args) {
+function call$1(fn, ...args) {
   if (isArray(fn)) return fn.map((f) => f(...args));
   if (fn) return fn(...args);
 }
@@ -930,7 +930,7 @@ function useVModel(props2, key, options = {}) {
       return getValue();
     },
     set(value) {
-      emit ? emit(event, value) : call(props2[event], value);
+      emit ? emit(event, value) : call$1(props2[event], value);
     }
   });
   const proxy = ref(getValue());
@@ -944,7 +944,7 @@ function useVModel(props2, key, options = {}) {
   });
   watch(() => proxy.value, (newValue) => {
     if (!shouldEmit) return;
-    emit ? emit(event, newValue) : call(props2[event], newValue);
+    emit ? emit(event, newValue) : call$1(props2[event], newValue);
   });
   return proxy;
 }
@@ -1637,23 +1637,23 @@ var stdin_default$l = defineComponent({
     } = usePopupItems();
     useLock(() => props2.show, () => props2.lockScroll);
     watch(() => props2.show, (newValue) => {
-      newValue ? call(props2.onOpen) : call(props2.onClose);
+      newValue ? call$1(props2.onOpen) : call$1(props2.onClose);
     });
     bindPopupItems({
       show: computed(() => props2.show)
     });
     useEventListener(() => window, "keydown", handleKeydown);
-    useRouteListener(() => call(props2.onRouteChange));
+    useRouteListener(() => call$1(props2.onRouteChange));
     function hidePopup() {
       const {
         closeOnClickOverlay,
         onClickOverlay
       } = props2;
-      call(onClickOverlay);
+      call$1(onClickOverlay);
       if (!closeOnClickOverlay) {
         return;
       }
-      call(props2["onUpdate:show"], false);
+      call$1(props2["onUpdate:show"], false);
     }
     function renderOverlay() {
       const {
@@ -1676,7 +1676,7 @@ var stdin_default$l = defineComponent({
         },
         "role": "dialog",
         "aria-modal": "true"
-      }, attrs), [rendered.value && call(slots.default)]), [[vShow, props2.show]]);
+      }, attrs), [rendered.value && call$1(slots.default)]), [[vShow, props2.show]]);
     }
     function renderPopup() {
       return createVNode(Transition, {
@@ -1700,12 +1700,12 @@ var stdin_default$l = defineComponent({
       if (!onStackTop() || event.key !== "Escape" || !props2.show) {
         return;
       }
-      call(props2.onKeyEscape);
+      call$1(props2.onKeyEscape);
       if (!props2.closeOnKeyEscape) {
         return;
       }
       preventDefault(event);
-      call(props2["onUpdate:show"], false);
+      call$1(props2["onUpdate:show"], false);
     }
     return () => {
       const {
@@ -2809,8 +2809,8 @@ const __sfc__$5 = defineComponent({
       });
     });
     onUpdated(resize);
-    call(bindPopup, null);
-    call(bindSwipeResizeDispatcher, {
+    call$1(bindPopup, null);
+    call$1(bindSwipeResizeDispatcher, {
       onResize() {
         nextTick().then(() => resize(true));
       }
@@ -2836,10 +2836,10 @@ const __sfc__$5 = defineComponent({
       }
     }
     function handleClear(e) {
-      call(props2.onClear, e);
+      call$1(props2.onClear, e);
     }
     function handleClick(e) {
-      call(props2.onClick, e);
+      call$1(props2.onClick, e);
     }
     function resize(disableTransition = false) {
       return __async(this, null, function* () {
@@ -3202,7 +3202,7 @@ const __sfc__$4 = defineComponent({
       validate,
       resetValidation
     };
-    call(bindForm, inputProvider);
+    call$1(bindForm, inputProvider);
     onSmartMounted(() => {
       if (props2.autofocus) {
         focus();
@@ -3216,12 +3216,12 @@ const __sfc__$4 = defineComponent({
     }
     function handleFocus(e) {
       isFocusing.value = true;
-      call(props2.onFocus, e);
+      call$1(props2.onFocus, e);
       validateWithTrigger("onFocus");
     }
     function handleBlur(e) {
       isFocusing.value = false;
-      call(props2.onBlur, e);
+      call$1(props2.onBlur, e);
       validateWithTrigger("onBlur");
     }
     function updateValue(e) {
@@ -3251,16 +3251,16 @@ const __sfc__$4 = defineComponent({
         return;
       }
       const value = updateValue(e);
-      call(props2["onUpdate:modelValue"], value);
-      call(props2.onInput, value, e);
+      call$1(props2["onUpdate:modelValue"], value);
+      call$1(props2.onInput, value, e);
       validateWithTrigger("onInput");
     }
     function handleChange(e) {
       const value = withTrim(updateValue(e));
       if (props2.modelModifiers.trim) {
-        call(props2["onUpdate:modelValue"], value);
+        call$1(props2["onUpdate:modelValue"], value);
       }
-      call(props2.onChange, value, e);
+      call$1(props2.onChange, value, e);
       validateWithTrigger("onChange");
     }
     function handleClear() {
@@ -3268,8 +3268,8 @@ const __sfc__$4 = defineComponent({
       if ((form == null ? void 0 : form.disabled.value) || (form == null ? void 0 : form.readonly.value) || disabled || readonly || !clearable) {
         return;
       }
-      call(props2["onUpdate:modelValue"], "");
-      call(onClear, "");
+      call$1(props2["onUpdate:modelValue"], "");
+      call$1(onClear, "");
       validateWithTrigger("onClear");
     }
     function handleClick(e) {
@@ -3277,7 +3277,7 @@ const __sfc__$4 = defineComponent({
       if ((form == null ? void 0 : form.disabled.value) || disabled) {
         return;
       }
-      call(onClick, e);
+      call$1(onClick, e);
       validateWithTrigger("onClick");
     }
     function formatNumber(value) {
@@ -3306,7 +3306,7 @@ const __sfc__$4 = defineComponent({
       preventDefault(e);
     }
     function reset() {
-      call(props2["onUpdate:modelValue"], "");
+      call$1(props2["onUpdate:modelValue"], "");
       resetValidation();
     }
     function validate() {
@@ -3530,7 +3530,7 @@ const __sfc__$3 = defineComponent({
   props: props$3,
   setup(props2, { slots }) {
     const isShow = computed(() => {
-      if (!call(slots.default)) {
+      if (!call$1(slots.default)) {
         return true;
       }
       return props2.loading;
@@ -3760,14 +3760,14 @@ const __sfc__$2 = defineComponent({
       if (!onClick || loading || disabled || pending2.value) {
         return;
       }
-      attemptAutoLoading(call(onClick, e));
+      attemptAutoLoading(call$1(onClick, e));
     }
     function handleTouchstart(e) {
       const { loading, disabled, onTouchstart } = props2;
       if (!onTouchstart || loading || disabled || pending2.value) {
         return;
       }
-      attemptAutoLoading(call(onTouchstart, e));
+      attemptAutoLoading(call$1(onTouchstart, e));
     }
     function handleFocus() {
       if (!props2.focusable) {
@@ -4074,40 +4074,40 @@ const __sfc__$1 = defineComponent({
       { immediate: true }
     );
     function done() {
-      return call(props2["onUpdate:show"], false);
+      return call$1(props2["onUpdate:show"], false);
     }
     function handleClickOverlay() {
       const { closeOnClickOverlay, onClickOverlay, onBeforeClose } = props2;
-      call(onClickOverlay);
+      call$1(onClickOverlay);
       if (!closeOnClickOverlay) {
         return;
       }
       if (onBeforeClose != null) {
-        call(onBeforeClose, "close", done, exposedRefs);
+        call$1(onBeforeClose, "close", done, exposedRefs);
         return;
       }
-      call(props2["onUpdate:show"], false);
+      call$1(props2["onUpdate:show"], false);
     }
     function confirm() {
       const { onBeforeClose, onConfirm } = props2;
-      call(onConfirm);
+      call$1(onConfirm);
       if (onBeforeClose != null) {
-        call(onBeforeClose, "confirm", done, exposedRefs);
+        call$1(onBeforeClose, "confirm", done, exposedRefs);
         return;
       }
-      call(props2["onUpdate:show"], false);
+      call$1(props2["onUpdate:show"], false);
     }
     function cancel() {
       const { onBeforeClose, onCancel } = props2;
-      call(onCancel);
+      call$1(onCancel);
       if (onBeforeClose != null) {
-        call(onBeforeClose, "cancel", done, exposedRefs);
+        call$1(onBeforeClose, "cancel", done, exposedRefs);
         return;
       }
-      call(props2["onUpdate:show"], false);
+      call$1(props2["onUpdate:show"], false);
     }
     function handleKeyEscape() {
-      call(props2.onKeyEscape);
+      call$1(props2.onKeyEscape);
       if (!props2.closeOnKeyEscape) {
         return;
       }
@@ -4175,19 +4175,19 @@ function Dialog(options) {
     singletonOptions = reactiveDialogOptions;
     const { unmountInstance } = mountInstance(stdin_default$3, reactiveDialogOptions, {
       onConfirm: () => {
-        call(reactiveDialogOptions.onConfirm);
+        call$1(reactiveDialogOptions.onConfirm);
         resolve("confirm");
       },
       onCancel: () => {
-        call(reactiveDialogOptions.onCancel);
+        call$1(reactiveDialogOptions.onCancel);
         resolve("cancel");
       },
       onClose: () => {
-        call(reactiveDialogOptions.onClose);
+        call$1(reactiveDialogOptions.onClose);
         resolve("close");
       },
       onClosed: () => {
-        call(reactiveDialogOptions.onClosed);
+        call$1(reactiveDialogOptions.onClosed);
         unmountInstance();
         singletonOptions === reactiveDialogOptions && (singletonOptions = null);
       },
@@ -4415,7 +4415,7 @@ const __sfc__ = defineComponent({
       validate,
       resetValidation
     };
-    call(bindForm, switchProvider);
+    call$1(bindForm, switchProvider);
     useEventListener(() => window, "keydown", handleKeydown);
     useEventListener(() => window, "keyup", handleKeyup);
     function handleKeydown(event) {
@@ -4461,19 +4461,19 @@ const __sfc__ = defineComponent({
       if (disabled || (form == null ? void 0 : form.disabled.value)) {
         return;
       }
-      call(onClick, event);
+      call$1(onClick, event);
       if (loading || readonly || (form == null ? void 0 : form.readonly.value)) {
         return;
       }
       const newValue = isActive.value ? inactiveValue : activeValue;
       if (lazyChange) {
-        call(onBeforeChange, newValue, (value) => {
-          call(updateModelValue, value);
+        call$1(onBeforeChange, newValue, (value) => {
+          call$1(updateModelValue, value);
           validateWithTrigger("onLazyChange");
         });
       } else {
-        call(updateModelValue, newValue);
-        call(onChange, newValue);
+        call$1(updateModelValue, newValue);
+        call$1(onChange, newValue);
         validateWithTrigger("onChange");
       }
     }
@@ -4484,7 +4484,7 @@ const __sfc__ = defineComponent({
       handleHovering(value);
     }
     function reset() {
-      call(props2["onUpdate:modelValue"], props2.inactiveValue);
+      call$1(props2["onUpdate:modelValue"], props2.inactiveValue);
       resetValidation();
     }
     return {
@@ -4834,6 +4834,9 @@ let baseName = "";
 const adapters = /* @__PURE__ */ new Map();
 function setShardBase(name2) {
   baseName = String(name2 || "");
+}
+function currentShardBase() {
+  return baseName;
 }
 function shardNameOf(storeId, base = baseName) {
   const safe = String(storeId || "").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
@@ -6811,15 +6814,15 @@ async function deleteAuthAccount(password) {
   });
 }
 const TIMEOUT_MS = 2e4;
-const HANDSHAKE_MS = 4e3;
+const HANDSHAKE_MS$1 = 4e3;
 const MAX_BOOT_FAILS = 2;
-let worker = null;
+let worker$1 = null;
 let workerBroken = false;
-let readyPromise = null;
+let readyPromise$1 = null;
 let bootFails = 0;
-let seq$1 = 0;
-let lastError = "";
-const pending = /* @__PURE__ */ new Map();
+let seq$2 = 0;
+let lastError$1 = "";
+const pending$1 = /* @__PURE__ */ new Map();
 let syncLib = null;
 async function syncLibs() {
   if (!syncLib) {
@@ -6855,21 +6858,21 @@ function warnOnce(reason) {
   }
 }
 function dropWorker(reason, { countFail = true } = {}) {
-  lastError = String(reason || "");
-  warnOnce(lastError);
+  lastError$1 = String(reason || "");
+  warnOnce(lastError$1);
   if (countFail) bootFails += 1;
   if (bootFails >= MAX_BOOT_FAILS) workerBroken = true;
-  for (const [, p] of pending) p.reject(new Error(lastError || "同步线程不可用"));
-  pending.clear();
+  for (const [, p] of pending$1) p.reject(new Error(lastError$1 || "同步线程不可用"));
+  pending$1.clear();
   try {
-    if (worker) worker.terminate();
+    if (worker$1) worker$1.terminate();
   } catch (e) {
   }
-  worker = null;
-  readyPromise = null;
+  worker$1 = null;
+  readyPromise$1 = null;
 }
 function bootWorker() {
-  if (worker && readyPromise) return readyPromise;
+  if (worker$1 && readyPromise$1) return readyPromise$1;
   if (workerBroken) return Promise.resolve(null);
   if (typeof Worker === "undefined") {
     workerBroken = true;
@@ -6886,8 +6889,8 @@ function bootWorker() {
     dropWorker("同步线程创建失败：" + (e && e.message ? e.message : e));
     return workerBroken ? Promise.resolve(null) : bootWorker();
   }
-  worker = w;
-  readyPromise = new Promise((resolve) => {
+  worker$1 = w;
+  readyPromise$1 = new Promise((resolve) => {
     let settled = false;
     const finish = (ok, why) => {
       if (settled) return;
@@ -6905,9 +6908,9 @@ function bootWorker() {
           w.terminate();
         } catch (e) {
         }
-        if (worker === w) {
-          worker = null;
-          readyPromise = null;
+        if (worker$1 === w) {
+          worker$1 = null;
+          readyPromise$1 = null;
         }
         dropWorker(why || "握手失败");
         resolve(null);
@@ -6917,7 +6920,7 @@ function bootWorker() {
       const msg = e.data || {};
       if (msg && msg.pong) finish(true);
     };
-    const timer2 = setTimeout(() => finish(false, "握手超时（脚本没跑起来或被拦截）"), HANDSHAKE_MS);
+    const timer2 = setTimeout(() => finish(false, "握手超时（脚本没跑起来或被拦截）"), HANDSHAKE_MS$1);
     w.onerror = (e) => {
       const why = e && e.message ? e.message : "同步线程运行报错";
       if (settled) {
@@ -6939,9 +6942,9 @@ function bootWorker() {
     };
     w.onmessage = (e) => {
       const msg = e.data || {};
-      const p = pending.get(msg.id);
+      const p = pending$1.get(msg.id);
       if (!p) return;
-      pending.delete(msg.id);
+      pending$1.delete(msg.id);
       clearTimeout(p.timer);
       if (msg.error) p.reject(new Error(msg.error));
       else p.resolve(msg.result);
@@ -6956,7 +6959,7 @@ function bootWorker() {
       finish(false, "同步线程发送失败");
     }
   });
-  return readyPromise;
+  return readyPromise$1;
 }
 function isCloneError(e) {
   return !!(e && (e.name === "DataCloneError" || String(e.message || "").indexOf("could not be cloned") >= 0 || String(e.message || "").indexOf("clone") >= 0 && e.name === "DOMException"));
@@ -6964,19 +6967,19 @@ function isCloneError(e) {
 function encodeTextInWorker(json) {
   return bootWorker().then((w) => {
     if (!w) return null;
-    const id = ++seq$1;
+    const id = ++seq$2;
     return new Promise((resolve, reject) => {
       const timer2 = setTimeout(() => {
-        pending.delete(id);
+        pending$1.delete(id);
         dropWorker("同步线程超时（encodeText）");
         reject(new Error("同步线程超时"));
       }, TIMEOUT_MS);
-      pending.set(id, { resolve, reject, timer: timer2 });
+      pending$1.set(id, { resolve, reject, timer: timer2 });
       try {
         w.postMessage({ id, op: "encodeText", payload: json });
       } catch (e) {
         clearTimeout(timer2);
-        pending.delete(id);
+        pending$1.delete(id);
         if (!isCloneError(e)) dropWorker("同步线程发送失败：" + (e && e.message ? e.message : e));
         reject(e);
       }
@@ -6986,19 +6989,19 @@ function encodeTextInWorker(json) {
 function callWorker(op, payload) {
   return bootWorker().then((w) => {
     if (!w) return null;
-    const id = ++seq$1;
+    const id = ++seq$2;
     return new Promise((resolve, reject) => {
       const timer2 = setTimeout(() => {
-        pending.delete(id);
+        pending$1.delete(id);
         dropWorker("同步线程超时（" + op + "）");
         reject(new Error("同步线程超时"));
       }, TIMEOUT_MS);
-      pending.set(id, { resolve, reject, timer: timer2 });
+      pending$1.set(id, { resolve, reject, timer: timer2 });
       try {
         w.postMessage({ id, op, payload });
       } catch (e) {
         clearTimeout(timer2);
-        pending.delete(id);
+        pending$1.delete(id);
         if (!isCloneError(e)) dropWorker("同步线程发送失败：" + (e && e.message ? e.message : e));
         reject(e);
       }
@@ -7006,18 +7009,18 @@ function callWorker(op, payload) {
   });
 }
 function codecMode() {
-  if (worker) return "worker";
+  if (worker$1) return "worker";
   if (workerBroken) return "main";
   return bootFails ? "worker-retry" : "worker-idle";
 }
 function codecLastError() {
-  return lastError;
+  return lastError$1;
 }
 function codecRetryWorker() {
   workerBroken = false;
   bootFails = 0;
   warned = false;
-  lastError = "";
+  lastError$1 = "";
   return true;
 }
 async function encodePack(pack) {
@@ -7077,6 +7080,123 @@ async function codecSelfTest() {
     decodeMs,
     bytes: text.length
   };
+}
+const HANDSHAKE_MS = 4e3;
+const JOB_MS = 9e4;
+let worker = null;
+let readyPromise = null;
+let broken = false;
+let seq$1 = 0;
+let lastError = "";
+const pending = /* @__PURE__ */ new Map();
+function drop(reason) {
+  lastError = String(reason || "");
+  try {
+    console.warn("[同步Worker] " + lastError + "，本次退回主线程");
+  } catch (e) {
+  }
+  for (const [, p] of pending) p.reject(new Error(lastError || "同步 Worker 不可用"));
+  pending.clear();
+  try {
+    if (worker) worker.terminate();
+  } catch (e) {
+  }
+  worker = null;
+  readyPromise = null;
+  broken = true;
+}
+function boot$1() {
+  if (worker && readyPromise) return readyPromise;
+  if (broken) return Promise.resolve(null);
+  if (typeof Worker === "undefined") {
+    broken = true;
+    return Promise.resolve(null);
+  }
+  let w;
+  try {
+    w = new Worker(new URL(
+      /* @vite-ignore */
+      "" + new URL("auto-sync.worker-Dy1dwbcs.js", import.meta.url).href,
+      import.meta.url
+    ), { type: "module" });
+  } catch (e) {
+    drop("创建失败：" + (e && e.message || e));
+    return Promise.resolve(null);
+  }
+  worker = w;
+  readyPromise = new Promise((resolve) => {
+    let settled = false;
+    const done = (ok) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer2);
+      if (!ok) {
+        drop("握手超时");
+        resolve(null);
+        return;
+      }
+      resolve(w);
+    };
+    const onMsg = (e) => {
+      const m = e.data || {};
+      if (m && m.pong) done(true);
+    };
+    const timer2 = setTimeout(() => done(false), HANDSHAKE_MS);
+    w.onerror = (e) => {
+      if (!settled) done(false);
+      else drop(e && e.message || "运行报错");
+    };
+    w.onmessageerror = () => drop("消息解析失败");
+    w.onmessage = (e) => {
+      const m = e.data || {};
+      const p = pending.get(m.id);
+      if (!p) return;
+      pending.delete(m.id);
+      clearTimeout(p.timer);
+      if (m.error) p.reject(new Error(m.error));
+      else p.resolve(m.result);
+    };
+    try {
+      w.addEventListener("message", onMsg);
+    } catch (e) {
+    }
+    try {
+      w.postMessage({ id: -1, op: "ping" });
+    } catch (e) {
+      done(false);
+    }
+  });
+  return readyPromise;
+}
+function call(op, payload) {
+  return boot$1().then((w) => {
+    if (!w) return null;
+    const id = ++seq$1;
+    return new Promise((resolve, reject) => {
+      const timer2 = setTimeout(() => {
+        pending.delete(id);
+        drop("任务超时（" + op + "）");
+        reject(new Error("同步 Worker 超时"));
+      }, JOB_MS);
+      pending.set(id, { resolve, reject, timer: timer2 });
+      try {
+        w.postMessage({ id, op, payload });
+      } catch (e) {
+        clearTimeout(timer2);
+        pending.delete(id);
+        reject(e);
+      }
+    });
+  }).catch(() => null);
+}
+async function autoExtractAndUpload(payload) {
+  return await call("extractAndUpload", payload);
+}
+async function autoFetchPack(payload) {
+  return await call("fetchPack", payload);
+}
+async function autoMergePlan(payload) {
+  return await call("mergePlan", payload);
 }
 const SHARE_DOMAIN = "83.fivecc.cn";
 const CLEAN_DOMAIN = "8-3.de5.net";
@@ -11819,6 +11939,84 @@ function exportAgentPack(agentId) {
   verifyPackBodies(pack);
   return pack;
 }
+async function importStorePackLight(remote) {
+  const pack = remote && !remote.collections && remote.seed ? { kind: "agent", collections: remote.seed.collections, meta: remote.seed.meta, agent: remote.agent } : remote;
+  if (!pack || !pack.collections) return null;
+  const kind = String(pack.kind || "");
+  if (kind === "sync" || kind === "full") return null;
+  if (kind && kind !== "store" && kind !== "agent") return null;
+  if (pack.grant || pack.initial) return null;
+  const storeRec = pack.store || pack.collections.stores && pack.collections.stores[0];
+  if (!storeRec || !storeRec.id) return null;
+  const existing = state.collections.stores.find((s) => s.id === storeRec.id);
+  if (!existing) return null;
+  if (state.storageKind !== "indexedDB" || typeof indexedDB === "undefined") return null;
+  verifyPackCounts(pack);
+  dataLog("导入店铺包(轻量)", { kind, storeId: storeRec.id, targetStoreId: pack.targetStoreId, role: pack.meta && pack.meta.role });
+  const plan = await autoMergePlan({
+    pack,
+    storeId: existing.id,
+    dbName: currentDbName(),
+    shardBase: currentShardBase() || currentDbName(),
+    deviceId: state.meta.deviceId || "local"
+  });
+  if (!plan) return null;
+  const c = state.collections;
+  const affected = /* @__PURE__ */ new Set();
+  const keyOf2 = (name2, row) => name2 === "stocks" ? row && row.productId + "|" + row.locType + "|" + row.locId : String(row && row.id || "");
+  for (const name2 of COLLECTIONS) {
+    if (name2 === "stores") continue;
+    const rows = plan.upserts && plan.upserts[name2] || [];
+    if (!rows.length) continue;
+    const arr = c[name2] || (c[name2] = []);
+    const byKey = /* @__PURE__ */ new Map();
+    for (const r of arr) {
+      const k = keyOf2(name2, r);
+      if (k && !byKey.has(k)) byKey.set(k, r);
+    }
+    for (const row of rows) {
+      const k = keyOf2(name2, row);
+      if (!k) continue;
+      const old = byKey.get(k);
+      if (old) {
+        Object.assign(old, row);
+        markRow(name2, old);
+      } else {
+        arr.push(row);
+        byKey.set(k, row);
+      }
+    }
+    affected.add(name2);
+  }
+  const storePatch = plan.store || {};
+  if (storePatch.id === existing.id) {
+    if (storePatch.name) existing.name = storePatch.name;
+    existing.placeholder = false;
+    const isAgentPack = kind === "agent";
+    if (!isAgentPack) {
+      if (!existing.wechatQR && storePatch.wechatQR) existing.wechatQR = storePatch.wechatQR;
+      if (!existing.alipayQR && storePatch.alipayQR) existing.alipayQR = storePatch.alipayQR;
+      if (Number(storePatch.minDiscount) >= 1) existing.minDiscount = Number(storePatch.minDiscount);
+      if (Array.isArray(storePatch.syncModes) && storePatch.syncModes.length) {
+        existing.syncModes = storePatch.syncModes.filter((m) => ["auto", "manual", "file"].includes(m));
+        existing.syncMode = existing.syncModes.includes("auto") ? "auto" : "manual";
+      }
+    }
+    if (Array.isArray(storePatch.warehouseIds)) {
+      const valid = (id) => c.warehouses.some((w) => w.id === id);
+      existing.warehouseIds = [...new Set(storePatch.warehouseIds.filter(valid))];
+    }
+    existing.updatedAt = Date.now();
+    affected.add("stores");
+  }
+  const report = plan.report || {};
+  const text = "合并店铺「" + (existing.name || existing.id) + "」" + (report.added ? "：新增 " + report.added + " 条" : "") + (report.updated ? "，更新 " + report.updated + " 条" : "") + (report.reconciled ? "，按流水对账 " + report.reconciled + " 处库存" : "");
+  addLog("sync", "导入店铺包（自动合并）：「" + (existing.name || existing.id) + "」" + (report.added || report.updated ? "新增 " + (report.added || 0) + " / 更新 " + (report.updated || 0) : "无新增"));
+  affected.add("logs");
+  touch(...Array.from(affected));
+  dataLog("轻量合并完成", { storeId: existing.id, counts: plan.counts, ms: plan.ms, report });
+  return { ok: true, text, report, counts: plan.counts, ms: plan.ms };
+}
 async function importStorePack(remote, opts = {}) {
   await ensureAllShardsLoaded();
   const pack = remote && !remote.collections && remote.seed ? { kind: "agent", collections: remote.seed.collections, meta: remote.seed.meta, agent: remote.agent, settings: remote.seed.settings } : remote;
@@ -12991,14 +13189,14 @@ const _sfc_main$o = {
   },
   setup(__props) {
     const props2 = __props;
-    const broken = ref(false);
+    const broken2 = ref(false);
     const loaded = ref(false);
     const imgEl = ref(null);
     function syncLoaded() {
       if (imgEl.value && imgEl.value.complete && imgEl.value.naturalWidth > 0) loaded.value = true;
     }
     watch(() => props2.product.img, () => {
-      broken.value = false;
+      broken2.value = false;
       loaded.value = false;
       nextTick(syncLoaded);
     });
@@ -13020,7 +13218,7 @@ const _sfc_main$o = {
         style: normalizeStyle({ width: __props.size + "px", height: Math.round(__props.size / __props.ratio) + "px" })
       }, [
         createBaseVNode("span", {
-          class: normalizeClass(["ph", { "is-hide": loaded.value && !broken.value }])
+          class: normalizeClass(["ph", { "is-hide": loaded.value && !broken2.value }])
         }, [
           (openBlock(), createElementBlock("svg", {
             width: Math.round(__props.size * 0.5),
@@ -13034,7 +13232,7 @@ const _sfc_main$o = {
             innerHTML: MOTIF[__props.product.motif] || MOTIF.tape
           }, null, 8, _hoisted_1$o))
         ], 2),
-        __props.product.img && !broken.value ? (openBlock(), createElementBlock("img", {
+        __props.product.img && !broken2.value ? (openBlock(), createElementBlock("img", {
           key: 0,
           ref_key: "imgEl",
           ref: imgEl,
@@ -13045,7 +13243,7 @@ const _sfc_main$o = {
           draggable: "false",
           class: normalizeClass({ loaded: loaded.value }),
           onLoad: _cache[0] || (_cache[0] = ($event) => loaded.value = true),
-          onError: _cache[1] || (_cache[1] = ($event) => broken.value = true)
+          onError: _cache[1] || (_cache[1] = ($event) => broken2.value = true)
         }, null, 42, _hoisted_2$n)) : createCommentVNode("", true)
       ], 4);
     };
@@ -14249,16 +14447,16 @@ const _hoisted_30$b = {
   class: "hint-line",
   style: { "margin-top": "8px" }
 };
-const _hoisted_31$9 = { class: "tnum" };
-const _hoisted_32$9 = {
+const _hoisted_31$a = { class: "tnum" };
+const _hoisted_32$a = {
   class: "disc-wrap",
   style: { "margin-top": "10px" }
 };
-const _hoisted_33$9 = ["data-on"];
-const _hoisted_34$9 = ["data-on", "onClick"];
-const _hoisted_35$9 = ["data-on"];
-const _hoisted_36$9 = { class: "rr-l" };
-const _hoisted_37$8 = { class: "pay-total" };
+const _hoisted_33$a = ["data-on"];
+const _hoisted_34$a = ["data-on", "onClick"];
+const _hoisted_35$a = ["data-on"];
+const _hoisted_36$a = { class: "rr-l" };
+const _hoisted_37$9 = { class: "pay-total" };
 const _hoisted_38$7 = { class: "tnum" };
 const _hoisted_39$6 = {
   key: 2,
@@ -14933,7 +15131,7 @@ const _sfc_main$k = {
                 cart.value.length && costFloor.value >= minDiscount.value ? (openBlock(), createElementBlock("div", _hoisted_30$b, [
                   createBaseVNode("span", null, [
                     createTextVNode("这批货进价 " + toDisplayString(unref(money)(cartCost.value)) + "，最多只能打到 ", 1),
-                    createBaseVNode("b", _hoisted_31$9, toDisplayString(noDiscount.value ? "原价" : effMin.value + " 折"), 1)
+                    createBaseVNode("b", _hoisted_31$a, toDisplayString(noDiscount.value ? "原价" : effMin.value + " 折"), 1)
                   ]),
                   createVNode(HelpTip, {
                     title: "为什么不能打更低",
@@ -14941,19 +15139,19 @@ const _sfc_main$k = {
                     example: "这批进价 ¥60，底线是 6 折。顾客要 5 折（卖 ¥50）就点不了，最低只能到 6 折。"
                   })
                 ])) : createCommentVNode("", true),
-                createBaseVNode("div", _hoisted_32$9, [
+                createBaseVNode("div", _hoisted_32$a, [
                   createBaseVNode("button", {
                     class: "chip",
                     "data-on": discount.value === 0,
                     onClick: _cache[7] || (_cache[7] = ($event) => setDiscount(0))
-                  }, "原价", 8, _hoisted_33$9),
+                  }, "原价", 8, _hoisted_33$a),
                   (openBlock(true), createElementBlock(Fragment, null, renderList(discountOptions.value, (d) => {
                     return openBlock(), createElementBlock("button", {
                       key: d,
                       class: "chip disc",
                       "data-on": discount.value === d,
                       onClick: ($event) => setDiscount(d)
-                    }, toDisplayString(d) + "折", 9, _hoisted_34$9);
+                    }, toDisplayString(d) + "折", 9, _hoisted_34$a);
                   }), 128))
                 ]),
                 hasTail.value || roundOffOn.value ? (openBlock(), createElementBlock("button", {
@@ -14962,12 +15160,12 @@ const _sfc_main$k = {
                   "data-on": roundOffOn.value,
                   onClick: toggleRoundOff
                 }, [
-                  createBaseVNode("span", _hoisted_36$9, [
+                  createBaseVNode("span", _hoisted_36$a, [
                     _cache[22] || (_cache[22] = createBaseVNode("b", null, "抹零", -1)),
                     createBaseVNode("small", null, "抹掉 " + toDisplayString(unref(money)(tail.value)) + " 零头，实收 " + toDisplayString(unref(money)(Math.floor(total.value))), 1)
                   ]),
                   createBaseVNode("em", null, toDisplayString(roundOffOn.value ? "已抹掉" : "抹掉"), 1)
-                ], 8, _hoisted_35$9)) : createCommentVNode("", true),
+                ], 8, _hoisted_35$a)) : createCommentVNode("", true),
                 withDirectives(createBaseVNode("input", {
                   "onUpdate:modelValue": _cache[8] || (_cache[8] = ($event) => remarkInput.value = $event),
                   class: "sale-remark",
@@ -14976,7 +15174,7 @@ const _sfc_main$k = {
                 }, null, 512), [
                   [vModelText, remarkInput.value]
                 ]),
-                createBaseVNode("div", _hoisted_37$8, [
+                createBaseVNode("div", _hoisted_37$9, [
                   createBaseVNode("span", null, [
                     _cache[23] || (_cache[23] = createTextVNode("应收", -1)),
                     discount.value ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [
@@ -15373,16 +15571,16 @@ const _hoisted_27$a = {
 const _hoisted_28$a = { class: "txt" };
 const _hoisted_29$a = { class: "sec-head" };
 const _hoisted_30$a = { class: "card" };
-const _hoisted_31$8 = ["onClick"];
-const _hoisted_32$8 = { class: "txt" };
-const _hoisted_33$8 = { key: 0 };
-const _hoisted_34$8 = { key: 1 };
-const _hoisted_35$8 = { class: "right" };
-const _hoisted_36$8 = {
+const _hoisted_31$9 = ["onClick"];
+const _hoisted_32$9 = { class: "txt" };
+const _hoisted_33$9 = { key: 0 };
+const _hoisted_34$9 = { key: 1 };
+const _hoisted_35$9 = { class: "right" };
+const _hoisted_36$9 = {
   key: 0,
   class: "empty"
 };
-const _hoisted_37$7 = {
+const _hoisted_37$8 = {
   class: "hint",
   style: { "text-align": "center", "margin-top": "18px" }
 };
@@ -15669,11 +15867,11 @@ const _sfc_main$j = {
                 product: orderThumb(o),
                 size: 44
               }, null, 8, ["product"]),
-              createBaseVNode("span", _hoisted_32$8, [
+              createBaseVNode("span", _hoisted_32$9, [
                 createBaseVNode("b", null, toDisplayString(o.agentId ? "代理单 · " + ((unref(state).collections.agents.find((a) => a.id === o.agentId) || {}).name || "") : o.items.map((i) => i.name).join("、")), 1),
-                unref(showCost) ? (openBlock(), createElementBlock("span", _hoisted_33$8, toDisplayString(o.items.length) + " 行 · 毛利 " + toDisplayString(unref(money2)(unref(orderStats)(o, unref(productById)).profit)), 1)) : (openBlock(), createElementBlock("span", _hoisted_34$8, toDisplayString(o.items.length) + " 行商品" + toDisplayString(o.agentId ? " · 代理开单" : ""), 1))
+                unref(showCost) ? (openBlock(), createElementBlock("span", _hoisted_33$9, toDisplayString(o.items.length) + " 行 · 毛利 " + toDisplayString(unref(money2)(unref(orderStats)(o, unref(productById)).profit)), 1)) : (openBlock(), createElementBlock("span", _hoisted_34$9, toDisplayString(o.items.length) + " 行商品" + toDisplayString(o.agentId ? " · 代理开单" : ""), 1))
               ]),
-              createBaseVNode("span", _hoisted_35$8, [
+              createBaseVNode("span", _hoisted_35$9, [
                 createBaseVNode("b", null, toDisplayString(unref(money2)(o.received)), 1),
                 createBaseVNode("span", null, toDisplayString(new Date(o.at).getHours()) + ":" + toDisplayString(String(new Date(o.at).getMinutes()).padStart(2, "0")), 1)
               ]),
@@ -15682,14 +15880,14 @@ const _sfc_main$j = {
                 size: 13,
                 style: { "opacity": ".5" }
               })
-            ], 8, _hoisted_31$8);
+            ], 8, _hoisted_31$9);
           }), 128)),
-          !recent.value.length ? (openBlock(), createElementBlock("div", _hoisted_36$8, [..._cache[31] || (_cache[31] = [
+          !recent.value.length ? (openBlock(), createElementBlock("div", _hoisted_36$9, [..._cache[31] || (_cache[31] = [
             createBaseVNode("b", null, "今天还没开单", -1),
             createTextVNode("点上面的「手动开单」，选货、收款就完事", -1)
           ])])) : createCommentVNode("", true)
         ]),
-        createBaseVNode("p", _hoisted_37$7, " 数据存在本机 " + toDisplayString(unref(state).storageKind) + "，可以导出 JSON 同步到别的设备 ", 1),
+        createBaseVNode("p", _hoisted_37$8, " 数据存在本机 " + toDisplayString(unref(state).storageKind) + "，可以导出 JSON 同步到别的设备 ", 1),
         createVNode(SellSheet, {
           show: sellOpen.value,
           "onUpdate:show": [
@@ -17026,9 +17224,16 @@ const _hoisted_26$8 = {
   style: { "margin-top": "12px", "line-height": "1.9" }
 };
 const _hoisted_27$8 = { key: 0 };
-const _hoisted_28$8 = { class: "links" };
-const _hoisted_29$8 = ["disabled"];
-const _hoisted_30$8 = { class: "sheet-foot" };
+const _hoisted_28$8 = { class: "tools" };
+const _hoisted_29$8 = { class: "tools-head" };
+const _hoisted_30$8 = { class: "tool-grid" };
+const _hoisted_31$8 = { class: "tool-ico" };
+const _hoisted_32$8 = ["disabled"];
+const _hoisted_33$8 = { class: "tool-ico" };
+const _hoisted_34$8 = { class: "tool-txt" };
+const _hoisted_35$8 = ["disabled"];
+const _hoisted_36$8 = { class: "tool-ico" };
+const _hoisted_37$7 = { class: "sheet-foot" };
 const _sfc_main$d = {
   __name: "ImportSheet",
   props: { show: Boolean },
@@ -17290,45 +17495,77 @@ const _sfc_main$d = {
                 ])
               ], 64)),
               createBaseVNode("div", _hoisted_28$8, [
-                createBaseVNode("button", {
-                  class: "chip",
-                  onClick: downloadTemplate
-                }, [
-                  createVNode(_sfc_main$u, {
-                    name: "download",
-                    size: 14
-                  }),
-                  _cache[15] || (_cache[15] = createTextVNode(" 下载模板", -1))
+                createBaseVNode("div", _hoisted_29$8, [
+                  _cache[15] || (_cache[15] = createBaseVNode("div", null, [
+                    createBaseVNode("b", null, "导出与备份"),
+                    createBaseVNode("span", null, "导入前先导一份，改错了还能对照回来")
+                  ], -1)),
+                  createBaseVNode("em", null, toDisplayString(unref(products).length) + " 个商品", 1)
                 ]),
-                createBaseVNode("button", {
-                  class: "chip",
-                  disabled: exporting.value,
-                  onClick: exportCurrent
-                }, [
-                  createVNode(_sfc_main$u, {
-                    name: "download",
-                    size: 14
-                  }),
-                  createTextVNode(" " + toDisplayString(exporting.value ? "正在导出…" : "导出当前商品"), 1)
-                ], 8, _hoisted_29$8),
-                createBaseVNode("button", {
-                  class: "chip",
-                  onClick: _cache[2] || (_cache[2] = ($event) => emit("detail"))
-                }, [
-                  createVNode(_sfc_main$u, {
-                    name: "chart",
-                    size: 14
-                  }),
-                  _cache[16] || (_cache[16] = createTextVNode(" 商品销售细则", -1))
-                ])
+                createBaseVNode("div", _hoisted_30$8, [
+                  createBaseVNode("button", {
+                    class: "tool",
+                    type: "button",
+                    onClick: downloadTemplate
+                  }, [
+                    createBaseVNode("span", _hoisted_31$8, [
+                      createVNode(_sfc_main$u, {
+                        name: "download",
+                        size: 17
+                      })
+                    ]),
+                    _cache[16] || (_cache[16] = createBaseVNode("span", { class: "tool-txt" }, [
+                      createBaseVNode("b", null, "下载导入模板"),
+                      createBaseVNode("span", null, "按列名填好，再从这里导进来")
+                    ], -1)),
+                    _cache[17] || (_cache[17] = createBaseVNode("span", { class: "tool-tag" }, "CSV", -1))
+                  ]),
+                  createBaseVNode("button", {
+                    class: "tool",
+                    type: "button",
+                    disabled: exporting.value,
+                    onClick: exportCurrent
+                  }, [
+                    createBaseVNode("span", _hoisted_33$8, [
+                      createVNode(_sfc_main$u, {
+                        name: "box",
+                        size: 17
+                      })
+                    ]),
+                    createBaseVNode("span", _hoisted_34$8, [
+                      createBaseVNode("b", null, toDisplayString(exporting.value ? "正在导出…" : "导出当前商品"), 1),
+                      _cache[18] || (_cache[18] = createBaseVNode("span", null, "商品档案 + 本店库存，可再导入", -1))
+                    ]),
+                    _cache[19] || (_cache[19] = createBaseVNode("span", { class: "tool-tag" }, "CSV", -1))
+                  ], 8, _hoisted_32$8),
+                  createBaseVNode("button", {
+                    class: "tool wide accent",
+                    type: "button",
+                    disabled: !unref(allow)("product:write"),
+                    onClick: _cache[2] || (_cache[2] = ($event) => emit("detail"))
+                  }, [
+                    createBaseVNode("span", _hoisted_36$8, [
+                      createVNode(_sfc_main$u, {
+                        name: "chart",
+                        size: 18
+                      })
+                    ]),
+                    _cache[20] || (_cache[20] = createBaseVNode("span", { class: "tool-txt" }, [
+                      createBaseVNode("b", null, "商品销售细则"),
+                      createBaseVNode("span", null, "销量 · 实收 · 毛利 · 毛利率 · 库存货值 · 分装统计，共 42 列")
+                    ], -1)),
+                    _cache[21] || (_cache[21] = createBaseVNode("span", { class: "tool-tag hot" }, "经营分析", -1))
+                  ], 8, _hoisted_35$8)
+                ]),
+                _cache[22] || (_cache[22] = createBaseVNode("p", { class: "tools-note" }, "销售细则按当前店铺累计订单汇总；整单折扣会按原价占比分摊到每个商品，毛利加总能对上订单。", -1))
               ])
             ]),
-            createBaseVNode("footer", _hoisted_30$8, [
+            createBaseVNode("footer", _hoisted_37$7, [
               createVNode(_component_var_button, {
                 size: "normal",
                 onClick: _cache[3] || (_cache[3] = ($event) => emit("update:show", false))
               }, {
-                default: withCtx(() => [..._cache[17] || (_cache[17] = [
+                default: withCtx(() => [..._cache[23] || (_cache[23] = [
                   createTextVNode("关闭", -1)
                 ])]),
                 _: 1
@@ -17352,7 +17589,7 @@ const _sfc_main$d = {
     };
   }
 };
-const ImportSheet = /* @__PURE__ */ _export_sfc(_sfc_main$d, [["__scopeId", "data-v-b914c397"]]);
+const ImportSheet = /* @__PURE__ */ _export_sfc(_sfc_main$d, [["__scopeId", "data-v-cfa94ac8"]]);
 const _hoisted_1$c = { class: "cat-sheet" };
 const _hoisted_2$c = { class: "cat-head" };
 const _hoisted_3$c = { class: "hint" };
@@ -18767,18 +19004,6 @@ const _sfc_main$a = {
             createBaseVNode("div", _hoisted_4$a, toDisplayString(store.value ? store.value.name : "当前店铺") + " 的商品库 · " + toDisplayString(unref(products).length) + " 个商品", 1)
           ]),
           _cache[15] || (_cache[15] = createBaseVNode("div", { class: "spacer" }, null, -1)),
-          unref(allow)("product:write") ? (openBlock(), createElementBlock("button", {
-            key: 0,
-            class: "icon-btn",
-            "aria-label": "导出商品销售细则",
-            title: "商品销售细则（销量/毛利/库存货值）",
-            onClick: exportSalesDetail
-          }, [
-            createVNode(_sfc_main$u, {
-              name: "download",
-              size: 18
-            })
-          ])) : createCommentVNode("", true),
           createBaseVNode("button", {
             class: "icon-btn",
             "aria-label": "分装拆卷",
@@ -18799,7 +19024,7 @@ const _sfc_main$a = {
               size: 17
             })
           ]),
-          unref(allow)("product:write") ? (openBlock(), createElementBlock(Fragment, { key: 1 }, [
+          unref(allow)("product:write") ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [
             createBaseVNode("button", {
               class: "icon-btn",
               "aria-label": "导入",
@@ -19022,7 +19247,7 @@ const _sfc_main$a = {
     };
   }
 };
-const ProductsView = /* @__PURE__ */ _export_sfc(_sfc_main$a, [["__scopeId", "data-v-57ced920"]]);
+const ProductsView = /* @__PURE__ */ _export_sfc(_sfc_main$a, [["__scopeId", "data-v-db5136d6"]]);
 const _hoisted_1$9 = { class: "page" };
 const _hoisted_2$9 = { class: "topbar" };
 const _hoisted_3$9 = { class: "wh-sum" };
@@ -23308,7 +23533,7 @@ const _sfc_main$7 = {
   }
 };
 const StatsView = /* @__PURE__ */ _export_sfc(_sfc_main$7, [["__scopeId", "data-v-766d44c2"]]);
-const APP_BUILD = "3.11.82";
+const APP_BUILD = "3.11.83";
 const AUTO_SYNC_MS = 5 * 60 * 1e3;
 const MAIN_SYNC_MS = 5 * 60 * 1e3;
 const PACK_TTL_MS = 60 * 60 * 1e3;
@@ -23509,46 +23734,98 @@ async function uploadCurrent(cfg, store, signal) {
     return false;
   }
   assertActive(signal, store.id);
+  try {
+    await flush();
+  } catch (e) {
+  }
   await waitIdle();
   assertActive(signal, store.id);
-  const pack = await exportStorePackReady(store.id);
-  if (!pack) {
-    logData("上传跳过", { storeId: store.id, reason: "exportStorePack 返回空" });
-    return false;
-  }
-  logData("上传开始", { storeId: store.id, rev, dataRev: rev });
   const code = tempMemberCode(store.id);
   const uploadedAt = Date.now();
   const packId = "pk-" + code + "-" + uploadedAt.toString(36) + "-" + Math.random().toString(36).slice(2, 6);
   const role2 = store.asAgent ? "agent" : store.mine === false ? "shared" : "owner";
   const coordinatorCode = cfg.groupOwnerCode || OWNER_CODE;
   const isCoordinator = code === coordinatorCode;
-  pack.packId = packId;
-  pack.uploadedAt = uploadedAt;
-  pack.exportedAt = pack.exportedAt || uploadedAt;
-  pack.dataRev = String(rev);
-  pack.targetStoreId = store.id;
-  pack.storeRole = role2;
-  pack.parentStoreId = store.parentStoreId || "";
-  pack.audience = isCoordinator ? "all" : "owner";
+  const audience = isCoordinator ? "all" : "owner";
   const prefix = role2 === "owner" ? "83-store-" : "83-store-full-";
   const name2 = prefix + store.id + "-" + code + "-" + (state.meta.deviceId || "dev") + "-" + stamp() + ".json";
-  const file = new File([await packToText(pack)], name2, { type: "application/json" });
+  const packMeta = {
+    packId,
+    uploadedAt,
+    dataRev: String(rev),
+    targetStoreId: store.id,
+    storeRole: role2,
+    parentStoreId: store.parentStoreId || "",
+    audience
+  };
+  let up = null;
+  let exportedAt = uploadedAt;
+  let counts = null;
+  let workerMs = null;
+  try {
+    if (state.storageKind !== "indexedDB" || typeof indexedDB === "undefined") throw new Error("当前存储不是 IndexedDB");
+    const wr = await autoExtractAndUpload({
+      dbName: currentDbName(),
+      shardBase: currentDbName(),
+      storeId: store.id,
+      deviceId: state.meta.deviceId || "dev",
+      user: authPack() || null,
+      payFallback: {
+        wechatQR: state.settings.wechatQR || "",
+        alipayQR: state.settings.alipayQR || "",
+        minDiscount: Number(state.settings.minDiscount) || 8
+      },
+      packMeta,
+      fileName: name2,
+      apiBase: API_BASE,
+      origin: ORIGIN,
+      expiryHours: getTempConfig().packExpiryHours,
+      timeoutMs: 6e4
+    });
+    if (wr && wr.up && wr.up.id) {
+      up = wr.up;
+      exportedAt = Number(wr.exportedAt) || uploadedAt;
+      counts = wr.counts || null;
+      workerMs = wr.ms;
+    }
+  } catch (e) {
+    logData("Worker 打包上传失败，退回主线程", { error: e && e.message || String(e) });
+  }
+  if (!up) {
+    const pack = await exportStorePackReady(store.id);
+    if (!pack) {
+      logData("上传跳过", { storeId: store.id, reason: "exportStorePack 返回空" });
+      return false;
+    }
+    pack.packId = packId;
+    pack.uploadedAt = uploadedAt;
+    pack.exportedAt = pack.exportedAt || uploadedAt;
+    pack.dataRev = String(rev);
+    pack.targetStoreId = store.id;
+    pack.storeRole = role2;
+    pack.parentStoreId = store.parentStoreId || "";
+    pack.audience = audience;
+    const file = new File([await packToText(pack)], name2, { type: "application/json" });
+    assertActive(signal, store.id);
+    up = await uploadStandaloneFile(file, { expiryHours: getTempConfig().packExpiryHours });
+    exportedAt = pack.exportedAt;
+    counts = pack.counts || null;
+  }
   assertActive(signal, store.id);
-  const up = await uploadStandaloneFile(file, { expiryHours: getTempConfig().packExpiryHours });
-  assertActive(signal, store.id);
+  logData("上传开始", { storeId: store.id, rev, dataRev: rev });
   const info = {
     packId,
     fileId: up.id,
     downloadUrl: up.downloadUrl,
     expiresAt: up.expiresAt || uploadedAt + getTempConfig().packExpiryHours * 3600 * 1e3,
     uploadedAt,
-    exportedAt: pack.exportedAt,
+    exportedAt,
     dataRev: String(rev),
     targetStoreId: store.id,
     storeRole: role2,
     parentStoreId: store.parentStoreId || "",
-    audience: pack.audience
+    audience,
+    counts: counts || null
   };
   cfg.pendingPack = info;
   cfg.memberTag = code;
@@ -23559,7 +23836,7 @@ async function uploadCurrent(cfg, store, signal) {
   cfg.mainDirty = true;
   rememberOwn(cfg, { id: up.id });
   saveFolder(store.id, cfg);
-  logData("上传完成", { storeId: store.id, fileId: up.id, name: name2, packId, audience: pack.audience });
+  logData("上传完成", { storeId: store.id, fileId: up.id, name: name2, packId, audience, workerMs });
   return true;
 }
 async function pullOthers(cfg, store, signal) {
@@ -23620,18 +23897,25 @@ async function pullOthers(cfg, store, signal) {
       if (p.packId && (cfg.mergedPackIds || []).includes(p.packId)) continue;
       pending2++;
       assertActive(signal, store.id);
-      let text;
-      try {
-        text = await fetchFileText({ downloadUrl: p.downloadUrl, name: "pack:" + code, reason: "pull-member-pack" });
-      } catch (e) {
-        blocked = true;
-        continue;
-      }
       let pack;
       try {
-        pack = await parsePack(text);
+        const wr = await autoFetchPack({ url: p.downloadUrl, timeoutMs: 45e3 });
+        if (wr && wr.pack) pack = wr.pack;
       } catch (e) {
-        continue;
+      }
+      if (!pack) {
+        let text;
+        try {
+          text = await fetchFileText({ downloadUrl: p.downloadUrl, name: "pack:" + code, reason: "pull-member-pack" });
+        } catch (e) {
+          blocked = true;
+          continue;
+        }
+        try {
+          pack = await parsePack(text);
+        } catch (e) {
+          continue;
+        }
       }
       if (!pack || pack.kind !== "store" && pack.kind !== "agent") continue;
       if (!packTargetsStore(pack, store.id)) {
@@ -23640,7 +23924,12 @@ async function pullOthers(cfg, store, signal) {
       }
       pack = retargetPackForStore(pack, store.id);
       try {
-        await importStorePack(pack);
+        const light = await importStorePackLight(pack);
+        if (light) {
+          logData("轻量合并成员包", { from: code, storeId: store.id, counts: light.counts, ms: light.ms });
+        } else {
+          await importStorePack(pack);
+        }
         await uiYield();
         logData("导入成员包", { from: code, packId: p.packId, storeId: store.id, audience: p.audience });
         merged++;
@@ -23665,18 +23954,25 @@ async function pullOthers(cfg, store, signal) {
   for (const f of legacy) {
     assertActive(signal, store.id);
     if (!isCoordinator && coordinatorCode !== OWNER_CODE) continue;
-    let text;
-    try {
-      text = await fetchFileText({ ...f, reason: "pull-legacy-pack" });
-    } catch (e) {
-      blocked = true;
-      break;
-    }
     let pack;
     try {
-      pack = await parsePack(text);
+      const wr = await autoFetchPack({ url: f.downloadUrl, timeoutMs: 45e3 });
+      if (wr && wr.pack) pack = wr.pack;
     } catch (e) {
-      continue;
+    }
+    if (!pack) {
+      let text;
+      try {
+        text = await fetchFileText({ ...f, reason: "pull-legacy-pack" });
+      } catch (e) {
+        blocked = true;
+        break;
+      }
+      try {
+        pack = await parsePack(text);
+      } catch (e) {
+        continue;
+      }
     }
     if (!pack || pack.kind !== "store" && pack.kind !== "agent") continue;
     if (ownerOnly && pack.kind !== "store") continue;
@@ -23684,7 +23980,8 @@ async function pullOthers(cfg, store, signal) {
     pack = retargetPackForStore(pack, store.id);
     if (!isCoordinator && pack.audience === "owner") continue;
     try {
-      await importStorePack(pack);
+      const light = await importStorePackLight(pack);
+      if (!light) await importStorePack(pack);
       await uiYield();
       logData("导入旧包", { file: f.name, fileId: f.id, storeId: store.id });
       merged++;
@@ -25010,7 +25307,7 @@ const _sfc_main$4 = {
     const QUICK = [
       { icon: "cart", t: "开一单", d: "首页「手动开单」→ 点商品或扫码 → 去结算 → 选收款方式 → 收款" },
       { icon: "scan", t: "扫条码", d: "首页「扫码开单」对准包装条码，扫到直接进单；扫不到会提示先给商品填条码" },
-      { icon: "chart", t: "看赚了多少", d: "「统计」看经营分析；「我的 → 经营分析导出」可整表导出 CSV" }
+      { icon: "chart", t: "看赚了多少", d: "「统计」看经营分析；商品库「导入」里可导出销售细则，按商品看销量和毛利" }
     ];
     const SECTIONS = [
       {
@@ -25031,13 +25328,15 @@ const _sfc_main$4 = {
         id: "product",
         icon: "box",
         lead: "商品、条码与两级分类。",
-        chips: ["条码", "分装", "低库存"],
+        chips: ["条码", "分装", "导出细则", "低库存"],
         title: "商品与分类",
         items: [
           "分类支持两级（大类 → 二级），商品挂哪一级都能被父类筛出来；分类后面的数字是商品种数。",
           "条码：商品编辑里可以「扫码填入」，填好后首页扫码就能直接开单；12 位与 13 位（含校验位）会自动兼容。",
           "分装：整卷拆成小份时设置「分装来源」，拆卷会整卷 −1、分装 +N，不会出现负库存。",
-          "低库存阈值：低于设定值会在首页「该补货了」里提醒。"
+          "低库存阈值：低于设定值会在首页「该补货了」里提醒。",
+          "商品库右上角的「导入」弹层里，除了导入表格，还能下载导入模板、导出当前商品表、导出「商品销售细则」；销售细则只放在这里，不再占商品库顶栏。",
+          "「商品销售细则」共 42 列：商品全部参数 + 售卖数量 + 成交单数 + 销售原价总额 + 销售实收（整单折扣按行原价占比分摊）+ 销售成本 + 销售毛利 + 毛利率 + 库存成本/售价总价值 + 分装库存和分装销量。"
         ]
       },
       {
@@ -25070,12 +25369,14 @@ const _sfc_main$4 = {
         id: "stats",
         icon: "chart",
         lead: "经营分析与整表导出。",
-        chips: ["环比", "毛利", "CSV"],
+        chips: ["环比", "毛利", "销售细则", "云导出"],
         title: "统计与导出",
         items: [
           "经营分析：环比、日均、毛利率/净利率、钱去哪了、时段分布、分类排行、亏本单提示。",
           "导出表格：经营分析整表导出（汇总/每日/分类/时段/杂费五段 CSV）。",
+          "商品销售细则：在商品库「导入」弹层里导出。整卷父商品行汇总分装库存与分装销量，子商品行留 0，避免同一批货算两遍。",
           "导出全店：店 + 仓库 + 商品 + 库存 + 分类 + 订单 + 日志 + 代理 + 库存流水 + 杂费，JSON 店铺包。",
+          "云导出：在「我的 → 数据同步」打开后，所有导出都会先传成临时链接再给你复制；关闭时仍然直接下载到本机。",
           "数字太长被压成「万」的地方，点一下能看到完整金额。"
         ]
       },
@@ -25083,12 +25384,15 @@ const _sfc_main$4 = {
         id: "data",
         icon: "download",
         lead: "云群组、店铺包与备份。",
-        chips: ["云对账", "店铺包", "换手机"],
+        chips: ["云对账", "自动同步", "店铺包", "换手机"],
         title: "数据同步与备份",
         items: [
           "数据默认存本机 IndexedDB，换设备/换浏览器各有一份，不会自己跑过去。",
           "同步包 = 整包覆盖本机（连主题、头像、店名一起变）；店铺包导入 = 把这家店合并进来。",
           "导入会按 id 合并，订单/库存流水有变动会叠加而不是覆盖；合并结果会给出报告。",
+          "自动同步：店主建云群组后，成员包每 5 分钟自动上传/下拉；下拉时「下载 + 解压 + 合并」都在后台线程算，合并只写变化的行，不再整店重扫。",
+          "自动同步只在打开应用时跑；切店、手动建组、导入、收银等前台操作会先中断这一轮，避免和你的操作抢资源。",
+          "「我的 → 数据同步」可看最近一次上传/合并时间、云群组成员数、当前是自动还是手动模式。",
           "「本机存储与操作日志」可看各库占用、压缩数据、清理旧库、重建当前库；这些动作都会整页罩住并给进度。",
           "日志全量保留（不限条数），随包一起流转，用于回溯谁在哪个店/仓做了什么。"
         ]
@@ -25117,7 +25421,9 @@ const _sfc_main$4 = {
           "同一条码扫了却匹配不上：检查商品里填的是 12 位还是 13 位，系统会自动兼容差一位校验位的情况。",
           "订单「今天」是空的：示例数据按「几小时前」生成，跨过零点后昨天的不算今天，点「累计」能看到全部。",
           "打开一直停在「正在打开本地库」：等 15 秒会给出重试/清空缓存的出口。",
-          "本机存储涨得快：看「本机存储与操作日志」里的明细；开启图床并迁移旧图通常能降一大截。"
+          "本机存储涨得快：看「本机存储与操作日志」里的明细；开启图床并迁移旧图通常能降一大截。",
+          "自动同步时点按钮有点钝：先看「数据同步」里的状态；大店首次同步要传一次全量包，之后只传变化。v3.11.83 起打包、下载、解压、合并都在 Worker 线程里跑。",
+          "宣传主页在哪：在「我的 → 帮助」点「宣传主页」，会新开一个独立介绍页，里面显示的是你当前打开这个网站的域名。"
         ]
       }
     ];
@@ -25196,7 +25502,7 @@ const _sfc_main$4 = {
                 }),
                 withDirectives(createBaseVNode("input", {
                   "onUpdate:modelValue": _cache[1] || (_cache[1] = ($event) => kw.value = $event),
-                  placeholder: "搜关键词，例如 抹零 / 调货 / 图床"
+                  placeholder: "搜关键词，例如 抹零 / 调货 / 销售细则 / 自动同步"
                 }, null, 512), [
                   [vModelText, kw.value]
                 ])
@@ -25248,7 +25554,7 @@ const _sfc_main$4 = {
               _cache[5] || (_cache[5] = createBaseVNode("p", {
                 class: "hint",
                 style: { "margin": "14px 0 calc(18px + env(safe-area-inset-bottom))", "line-height": "1.9" }
-              }, " 说明随功能更新；入口在「我的 → 功能使用说明」。遇到没写到的情况，先把当前页截图记下来再看日志。 ", -1))
+              }, " 说明随功能更新（当前 v3.11.83）；入口在「我的 → 功能使用说明」。遇到没写到的情况，先把当前页截图记下来再看日志。 ", -1))
             ])
           ])
         ]),
@@ -25257,7 +25563,7 @@ const _sfc_main$4 = {
     };
   }
 };
-const HelpSheet = /* @__PURE__ */ _export_sfc(_sfc_main$4, [["__scopeId", "data-v-742fe602"]]);
+const HelpSheet = /* @__PURE__ */ _export_sfc(_sfc_main$4, [["__scopeId", "data-v-55099b2d"]]);
 const _hoisted_1$3 = { class: "sheet login-sheet" };
 const _hoisted_2$3 = { class: "auth-head" };
 const _hoisted_3$3 = { class: "auth-brand" };
@@ -30381,7 +30687,7 @@ const _sfc_main$1 = {
             ])
           ]),
           sec.value.help ? (openBlock(), createElementBlock("div", _hoisted_250, [..._cache[150] || (_cache[150] = [
-            createStaticVNode('<p class="hint" style="line-height:2;" data-v-3bece52d> · 数据默认存 IndexedDB（库 <span class="mono" data-v-3bece52d>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-3bece52d> · <b data-v-3bece52d>同步包 ≠ 整机备份</b>：<br data-v-3bece52d> 　– <b data-v-3bece52d>同步包</b>（.json + sync 标记）：导入是<b data-v-3bece52d>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-3bece52d> 　– <b data-v-3bece52d>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-3bece52d> 　– 一句话记：<b data-v-3bece52d>同步 = 覆盖成一模一样</b>，<b data-v-3bece52d>店铺包 = 按店更新合并</b>。<br data-v-3bece52d> · 三种数据包，互不混淆：<b data-v-3bece52d>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-3bece52d>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-3bece52d>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-3bece52d> · 店铺包导出会<b data-v-3bece52d>自动选更小的格式</b>：压得动就出 <span class="mono" data-v-3bece52d>.txt</span>，压不动才出 <span class="mono" data-v-3bece52d>.json</span>；两种都能直接导入，.txt 也能直接发给微信好友。<br data-v-3bece52d> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-3bece52d>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-3bece52d> · <b data-v-3bece52d>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-3bece52d> · 「共管」店铺可以随时<b data-v-3bece52d>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-3bece52d> · 代理端是本站的 <span class="mono" data-v-3bece52d>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺包」接入。<br data-v-3bece52d> · <b data-v-3bece52d>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-3bece52d> · <b data-v-3bece52d>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-3bece52d> · <b data-v-3bece52d>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-3bece52d> · <b data-v-3bece52d>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-3bece52d> · <b data-v-3bece52d>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-3bece52d> · <b data-v-3bece52d>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-3bece52d> · <b data-v-3bece52d>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-3bece52d> · 店铺带两种「不是自己建的」标记：<b data-v-3bece52d>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-3bece52d>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-3bece52d> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-3bece52d> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
+            createStaticVNode('<p class="hint" style="line-height:2;" data-v-c4ad6b8c> · 数据默认存 IndexedDB（库 <span class="mono" data-v-c4ad6b8c>stall3</span>），浏览器禁用时自动降到 localStorage，再不行就内存兜底。<br data-v-c4ad6b8c> · <b data-v-c4ad6b8c>同步包 ≠ 整机备份</b>：<br data-v-c4ad6b8c> 　– <b data-v-c4ad6b8c>同步包</b>（.json + sync 标记）：导入是<b data-v-c4ad6b8c>全量覆盖</b>，本机被整套替掉 → 目标是你手机和电脑装着同一份库（哪台改都一样，导过去就完全一致），导入前会二次确认。<br data-v-c4ad6b8c> 　– <b data-v-c4ad6b8c>整机备份</b>（.json，无标记）：用于留底保存；恢复时按店铺逐家导入「店铺数据包」， 已有店铺做更新合并、没有就建共管店，其他店不受影响。<br data-v-c4ad6b8c> 　– 一句话记：<b data-v-c4ad6b8c>同步 = 覆盖成一模一样</b>，<b data-v-c4ad6b8c>店铺包 = 按店更新合并</b>。<br data-v-c4ad6b8c> · 三种数据包，互不混淆：<b data-v-c4ad6b8c>同步包</b>（同一个人的手机 ↔ 电脑，整包全量覆盖，含设置）、 <b data-v-c4ad6b8c>店铺包</b>（只带一家店，可交给别人共管，不含头像/主题等设置）、 <b data-v-c4ad6b8c>代理包</b>（店铺包 + 代理身份，导入后自动是代理视角）。<br data-v-c4ad6b8c> · 店铺包导出会<b data-v-c4ad6b8c>自动选更小的格式</b>：压得动就出 <span class="mono" data-v-c4ad6b8c>.txt</span>，压不动才出 <span class="mono" data-v-c4ad6b8c>.json</span>；两种都能直接导入，.txt 也能直接发给微信好友。<br data-v-c4ad6b8c> · 店铺包导入规则：本机已有这家店 → 只做一次数据更新，<b data-v-c4ad6b8c>角色保持不变</b>； 本机没有 → 按第一次导入的包类型建店：店铺包建「共管店铺」，代理包建「代理店铺」。<br data-v-c4ad6b8c> · <b data-v-c4ad6b8c>角色由第一次导入锁定</b>：代理店后来导入全量店铺包，也只合数据，不会自动变成共管； 全量包里的商品/仓库/库存都能同步，但代理权限仍然只读。要提升，必须由店铺所有人生成「授权共管包」并让对方导入。<br data-v-c4ad6b8c> · 「共管」店铺可以随时<b data-v-c4ad6b8c>退出</b>（店铺行右侧的「退出」）：它的商品、库存、订单、挂单、日志一起清掉， 别的店还在用的仓库和数据一件不动；代理身份同理由「退出代理」卸掉。<br data-v-c4ad6b8c> · 代理端是本站的 <span class="mono" data-v-c4ad6b8c>agent.html</span> 页面，和店主共用同一个库；换设备用「代理店铺包」在他的「我的 → 导入店铺包」接入。<br data-v-c4ad6b8c> · <b data-v-c4ad6b8c>入库是加、盘点是覆盖</b>：仓库页「入库 / 盘点」面板里先选动作再填数—— 入库 = 现存 + 填的数（进货天天发生，必须是加法）；盘点 = 直接改成填的数（纠正账实差异）。 明细页只做「调货到店」，不在每行挤一排按钮。<br data-v-c4ad6b8c> · <b data-v-c4ad6b8c>代理端也算毛利，只是不显示</b>：成本和毛利一直按完整数据算（订单行有成本快照， 缺的会在启动/导入时补上），代理端只是把成本、毛利、毛利率这几块藏起来， 统计口径和店主完全一致，不会出现&quot;毛利被算成负数&quot;。<br data-v-c4ad6b8c> · <b data-v-c4ad6b8c>库存按流水对账</b>：两边库存数量不一样时，不再&quot;谁新就用谁&quot;，而是取较早的那份快照， 再加上之后发生的所有变动（卖货、入库、盘点、调货都会留一条流水）。 eg: 同步时两边都 10 件；你这台入库 +5、另一台卖了 2 件 → 导回来是 10 + 5 − 2 = 13 件， 订单和营业额也一起在，不会出现&quot;库存对但营业额少&quot;或反过来。<br data-v-c4ad6b8c> · <b data-v-c4ad6b8c>仓库有主人</b>：仓库归&quot;建它的人&quot;（ownerId）。导入别人的店铺包时，包里仓库的 id 撞上我的仓库 （常见就是都叫「主仓 · 家里」、id 都是 w1）不会覆盖我的那条，而是给包里的仓库换一个新 id 接进来， 包内挂载关系和库存行一起改过去；别人建的仓库在本机只能看，不能挂到我的店上。<br data-v-c4ad6b8c> · <b data-v-c4ad6b8c>代理店也能收全量数据</b>：代理包/全量店铺包里的商品、仓库、库存、订单都会合并进来， 但权限仍按「代理」处理，挂仓库、建仓、改商品都会被拦下。<br data-v-c4ad6b8c> · <b data-v-c4ad6b8c>谁能生成代理</b>：只有自己建的店（mine）和店主交我共管的店（coManaged）能生成/管理代理； 「代理」不能往下再发展代理，共管者也不能把代理提升成共管 —— 提升只有店铺所有人能做。<br data-v-c4ad6b8c> · <b data-v-c4ad6b8c>代理和代理之间</b>：A 代卖点导给 B 代卖点，两边都还是代理（不变成共管），数据合并到同一个上级店， 各自拿自己的代理身份卖货；想把某个代卖点变成能改商品的共管，必须由店铺所有人在代理面板生成「授权共管包」。<br data-v-c4ad6b8c> · 店铺带两种「不是自己建的」标记：<b data-v-c4ad6b8c>代理</b>（我只是代卖，只能卖货、看不到成本，点它会切到代理身份）和 <b data-v-c4ad6b8c>共管</b>（店主把店交给我管，能改商品和订单）。两种都不会变成我的店。<br data-v-c4ad6b8c> · 表格导入的 .xlsx 需要在线加载 SheetJS，断网时请另存为 CSV。<br data-v-c4ad6b8c> · 抹零、欠货、分装都会如实记进账里，不做美化。 </p>', 1)
           ])])) : createCommentVNode("", true)
         ], 2),
         createBaseVNode("div", _hoisted_251, [
@@ -30399,7 +30705,7 @@ const _sfc_main$1 = {
           ]),
           createBaseVNode("span", _hoisted_252, [
             createBaseVNode("b", null, toDisplayString(unref(brandDomain)), 1),
-            _cache[151] || (_cache[151] = createBaseVNode("span", null, "v3.11.82", -1))
+            _cache[151] || (_cache[151] = createBaseVNode("span", null, "v3.11.83", -1))
           ])
         ]),
         createVNode(_component_var_popup, {
@@ -30792,7 +31098,7 @@ const _sfc_main$1 = {
     };
   }
 };
-const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-3bece52d"]]);
+const MeView = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-c4ad6b8c"]]);
 const errBox = reactive({ list: [], count: 0, seen: 0 });
 let installed = false;
 const MAX = 30;
@@ -30945,7 +31251,7 @@ const RAPID_SELECTOR = ".round, .tabs button, .pay-methods button, [data-rapid]"
 const _sfc_main = {
   __name: "App",
   setup(__props) {
-    const DevConsole = defineAsyncComponent(() => __vitePreload(() => import("./DevConsole-fcUfDskr.js"), true ? __vite__mapDeps([0,1,2,3]) : void 0, import.meta.url));
+    const DevConsole = defineAsyncComponent(() => __vitePreload(() => import("./DevConsole-DtKsJDhe.js"), true ? __vite__mapDeps([0,1,2,3]) : void 0, import.meta.url));
     watch(devMode, (on) => {
       if (on) __vitePreload(() => Promise.resolve().then(() => devmode), true ? void 0 : void 0, import.meta.url).then((m) => m.installDevTools()).catch(() => {
       });
@@ -31713,7 +32019,7 @@ function tryLock() {
   if (!navigator.locks || !navigator.locks.request) return Promise.resolve("unsupported");
   return new Promise((resolve) => {
     let settled = false;
-    let drop = null;
+    let drop2 = null;
     navigator.locks.request(LOCK, { ifAvailable: true }, (lock) => {
       if (!lock) {
         settled = true;
@@ -31722,10 +32028,10 @@ function tryLock() {
       }
       settled = true;
       resolve({ release: () => {
-        if (drop) drop();
+        if (drop2) drop2();
       } });
       return new Promise((r) => {
-        drop = r;
+        drop2 = r;
       });
     }).catch(() => {
       if (!settled) resolve(null);
