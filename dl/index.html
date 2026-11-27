@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="robots" content="noindex,nofollow" />
+  <meta name="theme-color" content="#03C7B7" />
+  <title>正在打开下载 · 83摊盈助手</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: #F1F3EE; color: #121A17; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      display: grid; place-items: center; padding: 24px; padding-bottom: calc(24px + env(safe-area-inset-bottom));
+      -webkit-font-smoothing: antialiased;
+    }
+    .card {
+      width: min(100%, 390px); padding: 24px 22px 20px; border-radius: 20px;
+      background: #fff; border: 1px solid #E2E6DE; box-shadow: 0 20px 50px -34px rgba(0, 0, 0, .5);
+      text-align: center;
+    }
+    .mark {
+      width: 54px; height: 54px; margin: 0 auto 12px; border-radius: 16px;
+      display: grid; place-items: center; background: #03C7B7; color: #fff;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 21px; font-weight: 800; letter-spacing: -.5px;
+      box-shadow: 0 8px 20px -12px rgba(3, 199, 183, .9);
+    }
+    h1 { margin: 0; font-size: 18px; letter-spacing: -.2px; }
+    p { margin: 7px 0 0; font-size: 12px; line-height: 1.7; color: #7C8A83; }
+    .file {
+      margin-top: 13px; padding: 9px 10px; border-radius: 9px; background: #F1F3EE;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px; line-height: 1.5; color: #3A4741; word-break: break-all;
+    }
+    .btn {
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      margin-top: 14px; padding: 12px 14px; border-radius: 11px;
+      background: #0B6B62; color: #fff; text-decoration: none; font-size: 14px; font-weight: 650;
+    }
+    .btn:active { transform: scale(.985); }
+    .tip { margin-top: 11px; font-size: 10.5px; color: #7C8A83; }
+    .err { border-color: #F6DFD8; background: #fff; }
+    .err h1 { color: #B4482E; }
+    .err .mark { background: #B4482E; }
+    .hidden { display: none !important; }
+    .spin {
+      width: 14px; height: 14px; border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, .35); border-top-color: #fff;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <main class="card" id="card">
+    <div class="mark">83</div>
+    <h1 id="title">正在打开下载</h1>
+    <p id="desc">文件由 83摊盈助手临时中转，下载链接默认 1 小时有效。</p>
+    <div class="file" id="file">正在读取下载信息…</div>
+    <a class="btn" id="open" href="#" rel="noopener">
+      <span class="spin" id="spin"></span><span id="openText">正在跳转…</span>
+    </a>
+    <div class="tip">如果没有自动开始，点上面的按钮；微信里请复制链接到系统浏览器打开。</div>
+  </main>
+
+  <script>
+    (function () {
+      var card = document.getElementById('card')
+      var title = document.getElementById('title')
+      var desc = document.getElementById('desc')
+      var fileEl = document.getElementById('file')
+      var open = document.getElementById('open')
+      var spin = document.getElementById('spin')
+      var openText = document.getElementById('openText')
+
+      function fail (msg) {
+        card.className = 'card err'
+        title.textContent = '下载链接不完整'
+        desc.textContent = msg
+        fileEl.textContent = '请回到 83摊盈助手，重新点一次导出。'
+        open.classList.add('hidden')
+      }
+
+      var params = new URLSearchParams(location.search)
+      var id = String(params.get('id') || '').trim()
+      /* 排障开关：?manual=1 停在页面上，不自动跳转，方便检查入口页本身 */
+      var manual = params.get('manual') === '1'
+      /* 兼容可能被聊天工具改写成 #id=xxx 的链接 */
+      if (!id && location.hash) {
+        var hp = new URLSearchParams(location.hash.replace(/^#/, ''))
+        id = String(hp.get('id') || '').trim()
+      }
+      if (!/^[A-Za-z0-9_-]{5,}$/.test(id)) {
+        fail('链接里缺少文件编号，可能复制时被截断了。')
+        return
+      }
+
+      var target = 'https://tempfile.org/' + encodeURIComponent(id) + '/download'
+      fileEl.textContent = '文件编号：' + id
+      open.href = target
+      open.setAttribute('target', '_blank')
+
+      /* 静态站只能做跳板，不能代理二进制；先让用户看到“正在下载”，再转真实文件地址。
+         自动跳转失败也不影响手动按钮。 */
+      if (manual) {
+        spin.classList.add('hidden')
+        openText.textContent = '点击开始下载'
+        desc.textContent = '排障模式：确认文件编号与按钮正常后，点按钮下载。'
+        return
+      }
+      setTimeout(function () {
+        try {
+          openText.textContent = '正在下载…'
+          location.replace(target)
+        } catch (e) {
+          spin.classList.add('hidden')
+          openText.textContent = '点击开始下载'
+          desc.textContent = '浏览器拦住了自动跳转，请点下面按钮。'
+        }
+      }, 420)
+    })()
+  </script>
+</body>
+</html>
