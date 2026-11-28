@@ -8,10 +8,12 @@
   <title>正在打开下载 · 83摊盈助手</title>
   <style>
     * { box-sizing: border-box; }
-    html, body { margin: 0; min-height: 100%; background: #F1F3EE; color: #121A17; }
+    html, body { margin: 0; background: #F1F3EE; color: #121A17; }
+    html { height: 100%; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-      display: grid; place-items: center; padding: 24px; padding-bottom: calc(24px + env(safe-area-inset-bottom));
+      display: grid; place-items: center; min-height: 100vh; min-height: 100dvh; width: 100%;
+      padding: 24px; padding-bottom: calc(24px + env(safe-area-inset-bottom));
       -webkit-font-smoothing: antialiased;
     }
     .card {
@@ -20,48 +22,52 @@
       text-align: center;
     }
     .mark {
-      width: 54px; height: 54px; margin: 0 auto 12px; border-radius: 16px;
-      display: grid; place-items: center; background: #03C7B7; color: #fff;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 21px; font-weight: 800; letter-spacing: -.5px;
-      box-shadow: 0 8px 20px -12px rgba(3, 199, 183, .9);
+      width: 62px; height: 62px; margin: 0 auto 12px; padding: 4px; border-radius: 17px;
+      display: grid; place-items: center; background: #fff;
+      border: 1px solid #DCE4DD;
+      box-shadow: 0 8px 20px -14px rgba(3, 199, 183, .75);
     }
+    .mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
     h1 { margin: 0; font-size: 18px; letter-spacing: -.2px; }
     p { margin: 7px 0 0; font-size: 12px; line-height: 1.7; color: #7C8A83; }
     .file {
       margin-top: 13px; padding: 9px 10px; border-radius: 9px; background: #F1F3EE;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 11px; line-height: 1.5; color: #3A4741; word-break: break-all;
+      font-size: 11px; line-height: 1.65; color: #3A4741; word-break: break-all;
     }
+    .file span { display: block; }
+    .file .fname { color: #121A17; font-weight: 600; }
     .btn {
-      display: flex; align-items: center; justify-content: center; gap: 6px;
-      margin-top: 14px; padding: 12px 14px; border-radius: 11px;
-      background: #0B6B62; color: #fff; text-decoration: none; font-size: 14px; font-weight: 650;
+      display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%;
+      margin-top: 14px; padding: 12px 14px; border: 0; border-radius: 11px;
+      background: #0B6B62; color: #fff; text-decoration: none; font-size: 14px;
+      font-weight: 650; cursor: pointer; font-family: inherit;
     }
     .btn:active { transform: scale(.985); }
-    .tip { margin-top: 11px; font-size: 10.5px; color: #7C8A83; }
+    .tip { margin-top: 11px; font-size: 10.5px; color: #7C8A83; line-height: 1.6; }
     .err { border-color: #F6DFD8; background: #fff; }
     .err h1 { color: #B4482E; }
-    .err .mark { background: #B4482E; }
+    .err .mark { border-color: #F6DFD8; }
     .hidden { display: none !important; }
     .spin {
       width: 14px; height: 14px; border-radius: 50%;
       border: 2px solid rgba(255, 255, 255, .35); border-top-color: #fff;
-      animation: spin .7s linear infinite;
+      animation: spin .7s linear infinite; flex: 0 0 auto;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
   <main class="card" id="card">
-    <div class="mark">83</div>
+    <!-- 用真正的 83 购物车 Logo；图标在 8-3 根目录随装机包一起部署 -->
+    <div class="mark"><img id="logo" src="/icon-brand.svg" alt="83摊盈助手" width="54" height="54" /></div>
     <h1 id="title">正在打开下载</h1>
     <p id="desc">文件由 83摊盈助手临时中转，下载链接默认 1 小时有效。</p>
     <div class="file" id="file">正在读取下载信息…</div>
-    <a class="btn" id="open" href="#" rel="noopener">
-      <span class="spin" id="spin"></span><span id="openText">正在跳转…</span>
-    </a>
-    <div class="tip">如果没有自动开始，点上面的按钮；微信里请复制链接到系统浏览器打开。</div>
+    <button class="btn" id="open" type="button">
+      <span class="spin" id="spin"></span><span id="openText">正在准备…</span>
+    </button>
+    <div class="tip" id="tip">如果没有自动开始，点上面的按钮；微信里请复制链接到系统浏览器打开。</div>
   </main>
 
   <script>
@@ -73,6 +79,11 @@
       var open = document.getElementById('open')
       var spin = document.getElementById('spin')
       var openText = document.getElementById('openText')
+      var tip = document.getElementById('tip')
+      var logo = document.getElementById('logo')
+
+      /* 根目录图标理论上一定在；旧部署/子路径里缺 SVG 时退回 PNG，不把破图留在页面上。 */
+      logo.onerror = function () { logo.onerror = null; logo.src = '/icon-192.png' }
 
       function fail (msg) {
         card.className = 'card err'
@@ -80,13 +91,14 @@
         desc.textContent = msg
         fileEl.textContent = '请回到 83摊盈助手，重新点一次导出。'
         open.classList.add('hidden')
+        tip.classList.add('hidden')
       }
 
       var params = new URLSearchParams(location.search)
       var id = String(params.get('id') || '').trim()
-      /* 排障开关：?manual=1 停在页面上，不自动跳转，方便检查入口页本身 */
+      /* 排障开关：?manual=1 停在页面上，不自动下载，方便检查入口页本身 */
       var manual = params.get('manual') === '1'
-      /* 兼容可能被聊天工具改写成 #id=xxx 的链接 */
+      /* 兼容可能被聊天工具改写成 #id=xxx&name=xxx 的链接 */
       if (!id && location.hash) {
         var hp = new URLSearchParams(location.hash.replace(/^#/, ''))
         id = String(hp.get('id') || '').trim()
@@ -96,27 +108,126 @@
         return
       }
 
-      var target = 'https://tempfile.org/' + encodeURIComponent(id) + '/download'
-      fileEl.textContent = '文件编号：' + id
-      open.href = target
-      open.setAttribute('target', '_blank')
+      /* 【中文文件名】-tempfile 服务端把上传的中文名按 Latin-1 误解了一次，
+         下载响应里的 filename 已经是乱码。文件本体没问题，所以 App 生成链接时
+         会把原始名字放在 ?name=，这里用 blob + <a download> 强制改回正确名字。 */
+      var rawName = String(params.get('name') || params.get('filename') || '').trim()
+      var filename = rawName
+        .replace(/[\u0000-\u001f\u007f]/g, '')
+        .replace(/[\\/:*?"<>|]/g, '-')
+        .replace(/^\.+$/, '')
+        .trim()
+      if (filename.length > 120) {
+        var dot = filename.lastIndexOf('.')
+        var ext = dot > 20 ? filename.slice(dot) : ''
+        filename = filename.slice(0, dot > 20 ? dot : filename.length).slice(0, 120 - ext.length) + ext
+      }
 
-      /* 静态站只能做跳板，不能代理二进制；先让用户看到“正在下载”，再转真实文件地址。
-         自动跳转失败也不影响手动按钮。 */
-      if (manual) {
+      var target = 'https://tempfile.org/' + encodeURIComponent(id) + '/download'
+      var downloading = false
+
+      fileEl.textContent = ''
+      if (filename) {
+        var nameLine = document.createElement('span')
+        nameLine.className = 'fname'
+        nameLine.textContent = filename
+        fileEl.appendChild(nameLine)
+      }
+      var idLine = document.createElement('span')
+      idLine.textContent = '文件编号：' + id
+      fileEl.appendChild(idLine)
+
+      function isWeChat () { return /MicroMessenger/i.test(navigator.userAgent || '') }
+
+      /* iOS 所有浏览器都是 WebKit：定时器里自动点 Blob 下载可能被“必须有用户手势”拦掉。
+         宁可多一次点击，也不要页面显示“已开始”但文件没下来。 */
+      function isIOS () {
+        var ua = navigator.userAgent || ''
+        return /iPad|iPhone|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+      }
+
+      function goTarget () {
+        window.location.replace(target)
+      }
+
+      function setBusy (text) {
+        spin.classList.remove('hidden')
+        openText.textContent = text || '正在下载…'
+        open.disabled = true
+      }
+
+      function setIdle (text) {
         spin.classList.add('hidden')
-        openText.textContent = '点击开始下载'
-        desc.textContent = '排障模式：确认文件编号与按钮正常后，点按钮下载。'
+        openText.textContent = text || '重新下载'
+        open.disabled = false
+        downloading = false
+      }
+
+      /* 下载正文 -> Blob -> 指定中文文件名。
+         tempfile 的 /download 带 Access-Control-Allow-Origin: *，所以跨域 fetch 能读到；
+         如果有节点以后收紧 CORS，catch 里会退回直接跳转，用户仍然能拿到文件。 */
+      async function downloadWithName () {
+        setBusy('正在准备文件…')
+        var ctl = typeof AbortController !== 'undefined' ? new AbortController() : null
+        var timer = ctl ? setTimeout(function () { ctl.abort() }, 25000) : 0
+        try {
+          var res = await fetch(target, {
+            mode: 'cors',
+            credentials: 'omit',
+            cache: 'no-store',
+            signal: ctl ? ctl.signal : undefined
+          })
+          if (!res.ok) throw new Error('HTTP ' + res.status)
+          var len = Number(res.headers.get('Content-Length') || 0)
+          /* 超大文件不在页面里整包进内存；直接跳转，避免手机浏览器被撑爆。 */
+          if (len && len > 64 * 1024 * 1024) throw new Error('FILE_TOO_LARGE')
+          var blob = await res.blob()
+          if (!blob || !blob.size) throw new Error('EMPTY_FILE')
+          var url = URL.createObjectURL(blob)
+          var a = document.createElement('a')
+          a.href = url
+          a.download = filename || ('83-download-' + id)
+          a.style.display = 'none'
+          document.body.appendChild(a)
+          a.click()
+          setTimeout(function () { URL.revokeObjectURL(url); a.remove() }, 5000)
+          title.textContent = '下载已开始'
+          desc.textContent = '文件正在保存，请查看浏览器的下载列表。'
+          tip.textContent = '文件名已按原始中文名保存；微信里如果没反应，请复制链接到系统浏览器。'
+          setIdle('重新下载')
+        } catch (e) {
+          /* 读取失败不挡下载：退回 tempfile 原始地址，至少文件能拿到。 */
+          desc.textContent = '浏览器没读到文件，正在改用临时地址下载…'
+          goTarget()
+        } finally {
+          if (timer) clearTimeout(timer)
+        }
+      }
+
+      function start () {
+        if (downloading) return
+        downloading = true
+        /* 微信内置浏览器不支持 Blob 下载；有中文名也没用，直接走系统下载页。 */
+        if (!filename || isWeChat()) { goTarget(); return }
+        downloadWithName()
+      }
+
+      open.addEventListener('click', start)
+
+      if (manual || isIOS()) {
+        setIdle('点击开始下载')
+        desc.textContent = manual
+          ? '排障模式：确认文件名与按钮正常后，点按钮下载。'
+          : '点下面的按钮开始下载；文件名会按原始中文名保存。'
         return
       }
       setTimeout(function () {
-        try {
-          openText.textContent = '正在下载…'
-          location.replace(target)
-        } catch (e) {
-          spin.classList.add('hidden')
-          openText.textContent = '点击开始下载'
-          desc.textContent = '浏览器拦住了自动跳转，请点下面按钮。'
+        if (filename && !isWeChat()) {
+          openText.textContent = '正在准备文件…'
+          downloadWithName()
+        } else {
+          openText.textContent = '正在跳转…'
+          goTarget()
         }
       }, 420)
     })()
